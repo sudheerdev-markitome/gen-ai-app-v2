@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./gen-ai-backend  # Path to the backend's Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./gen-ai-backend/.env  # Loads your secret API keys into the container
+
+  frontend:
+    build: ./gen-ai-frontend  # Path to the frontend's Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"    # Maps port 80 on the server to port 80 in the container
+      - "443:443"  # We'll use this later for HTTPS

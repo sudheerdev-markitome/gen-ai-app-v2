@@ -18,22 +18,18 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
           script: |
-            # Load the Node.js environment so npm and pm2 are found
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-
-            # Navigate to your project directory
+            # Navigate to your project directory on the server
             cd ~/gen-ai-app
 
-            # Pull the latest code from GitHub
+            # Pull the latest code (which now includes Dockerfiles)
             git pull origin main
 
-            # Build and deploy the frontend
-            cd gen-ai-frontend
-            npm install
-            npm run build
-            sudo cp -R dist/* /var/www/html/
+            # Stop old services if they are running, just in case
+            sudo systemctl stop nginx || true
+            pm2 stop gen-ai-backend || true
+            pm2 delete gen-ai-backend || true
 
-            # Go back to the root and restart the backend service
-            cd ..
-            pm2 restart gen-ai-backend
+            # Use the absolute path to docker-compose to build and run the containers
+            # The --build flag tells Docker to rebuild images if the Dockerfiles have changed
+            # The -d flag runs the containers in the background
+            sudo /usr/local/bin/docker-compose up --build -d
