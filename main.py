@@ -1,0 +1,210 @@
+# main.py
+import os
+import requests
+import boto3
+from datetime import datetime, timezone
+import uuid
+from typing import List, Optional
+import json
+import asyncio
+
+from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from jose import jwt, jwk
+from jose.exceptions import JOSEError
+from sse_starlette.sse import EventSourceResponse
+
+import openai
+import google.generativeai as genai
+
+## -------------------
+## CONFIGURATION
+## -------------------
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+# Make sure these are set in your .env file
+COGNITO_REGION = os.getenv("COGNITO_REGION", "ap-south-1")
+COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
+COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
+
+dynamodb = boto3.resource('dynamodb', region_name=COGNITO_REGION)
+chat_history_table = dynamodb.Table('ChatHistory')
+
+SUPPORTED_MODELS = {
+    "gpt-4": { "type": "openai", "name": "gpt-4" },
+    "gemini-pro": { "type": "google", "name": "gemini-1.0-pro" },
+    "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash-latest" }
+}
+
+## -------------------
+## AUTHENTICATION
+## -------------------
+COGNITO_JWKS_URL = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
+
+try:
+    response = requests.get(COGNITO_JWKS_URL)
+    response.raise_for_status()
+    jwks = response.json()
+except requests.exceptions.RequestException as e:
+    raise RuntimeError(f"Could not fetch Cognito JWKS: {e}")
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+        rsa_key = {}
+        for key in jwks["keys"]:
+            if key["kid"] == unverified_header["kid"]:
+                rsa_key = {
+                    "kty": key["kty"], "kid": key["kid"], "use": key["use"],
+                    "n": key["n"], "e": key["e"]
+                }
+        if rsa_key:
+            payload = jwt.decode(
+                token, rsa_key, algorithms=["RS256"],
+                audience=COGNITO_APP_CLIENT_ID,
+                issuer=f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
+            )
+            return payload
+    except JOSEError:
+        raise credentials_exception
+    raise credentials_exception
+
+## -------------------
+## PYDANTIC MODELS
+## -------------------
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class PromptRequest(BaseModel):
+    prompt: str
+    model: str
+    conversationId: Optional[str] = None
+    history: Optional[List[ChatMessage]] = None
+
+## -------------------
+## FASTAPI APP
+## -------------------
+app = FastAPI()
+
+## -------------------
+## STREAMING LOGIC
+## -------------------
+async def stream_generator(request_data: dict):
+    user_prompt = request_data.get("prompt")
+    model_name = request_data.get("model")
+    history = request_data.get("history", [])
+    conversation_id = request_data.get("conversationId") or str(uuid.uuid4())
+    user_id = request_data.get("userId")
+
+    # 1. Save user's prompt to DB
+    timestamp = datetime.now(timezone.utc).isoformat()
+    chat_history_table.put_item(Item={
+        'conversationId': conversation_id, 'timestamp': f"{timestamp}_user",
+        'userId': user_id, 'sender': 'user', 'text': user_prompt
+    })
+
+    model_config = SUPPORTED_MODELS.get(model_name)
+    if not model_config:
+        yield json.dumps({"error": "Model not supported"})
+        return
+
+    full_response = ""
+    try:
+        if model_config["type"] == "openai":
+            messages_for_api = []
+            if history:
+                for msg in history:
+                    role = "assistant" if msg['role'] == "model" else msg['role']
+                    messages_for_api.append({"role": role, "content": msg['content']})
+            messages_for_api.append({"role": "user", "content": user_prompt})
+            
+            stream = openai.chat.completions.create(
+                model=model_config["name"],
+                messages=messages_for_api,
+                stream=True
+            )
+            
+            for chunk in stream:
+                content = chunk.choices[0].delta.content or ""
+                if content:
+                    full_response += content
+                    yield json.dumps({"text": content})
+                    await asyncio.sleep(0.01)
+
+        elif model_config["type"] == "google":
+            # NOTE: Gemini streaming is slightly different. This is a basic implementation.
+            model = genai.GenerativeModel(model_config["name"])
+            stream = model.generate_content(user_prompt, stream=True)
+            for chunk in stream:
+                content = chunk.text
+                full_response += content
+                yield json.dumps({"text": content})
+                await asyncio.sleep(0.01)
+
+    except Exception as e:
+        yield json.dumps({"error": f"Error from AI service: {str(e)}"})
+        return
+
+    # 2. After stream, save the full AI response to DB
+    ai_timestamp = datetime.now(timezone.utc).isoformat()
+    chat_history_table.put_item(Item={
+        'conversationId': conversation_id, 'timestamp': f"{ai_timestamp}_ai",
+        'userId': user_id, 'sender': 'ai', 'text': full_response
+    })
+
+    # 3. Send final "done" event
+    yield json.dumps({"event": "done", "conversationId": conversation_id})
+
+## -------------------
+## API ENDPOINTS
+## -------------------
+@app.get("/api/conversations")
+async def get_conversations(current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("sub")
+    try:
+        response = chat_history_table.query(
+	    IndexName='UserId-Timestamp-Index',
+	    KeyConditionExpression=boto3.dynamodb.conditions.Key('userId').eq(user_id),
+	    ScanIndexForward=False
+        )
+        conversations = {}
+        for item in response.get('Items', []):
+            conv_id = item['conversationId']
+            if conv_id not in conversations:
+                conversations[conv_id] = {'id': conv_id, 'title': item['text'][:50]}
+        return list(conversations.values())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation_messages(conversation_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("sub")
+    try:
+        response = chat_history_table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
+        )
+        items = response.get('Items', [])
+        if items and items[0].get('userId') != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return items
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.post("/api/generate")
+async def generate_text_stream(request: PromptRequest, current_user: dict = Depends(get_current_user)):
+    request_data = request.model_dump()
+    request_data["userId"] = current_user.get("sub")
+    
+    return EventSourceResponse(stream_generator(request_data))
