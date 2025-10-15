@@ -1,9 +1,9 @@
-name: Deploy to EC2
+name: Deploy to EC2 (Non-Docker)
 
 on:
   push:
     branches:
-      - main # Runs when you push to the main branch
+      - main
 
 jobs:
   deploy:
@@ -18,15 +18,22 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
           script: |
-            # Load the Node.js environment
+            # Load the Node.js environment so npm and pm2 are found
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
             # Navigate to your project directory
             cd ~/gen-ai-app
 
-            # Pull the latest code
+            # Pull the latest code from GitHub
             git pull origin main
 
-            # Rebuild and run with Docker Compose
-            sudo docker-compose up --build -d
+            # Build and deploy the frontend
+            cd gen-ai-frontend
+            npm install
+            npm run build
+            sudo cp -R dist/* /var/www/html/
+
+            # Go back to the root and restart the backend service
+            cd ..
+            pm2 restart gen-ai-backend
