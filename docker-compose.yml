@@ -16,7 +16,5 @@ services:
     depends_on:
       - backend
     volumes:
-      # Mount the Let's Encrypt folder from the host into the container
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      # Mount the dhparam file as well
-      - /etc/ssl/certs/dhparam.pem:/etc/ssl/certs/dhparam.pem:ro
+  # Mount the copied certs directory
+      - ./certs:/etc/letsencrypt:ro
