@@ -15,6 +15,6 @@ services:
       - "443:443"
     depends_on:
       - backend
-    volumes:
+  volumes:
   # Mount the copied certificates from within the project directory
       - ./certs:/etc/letsencrypt:ro
