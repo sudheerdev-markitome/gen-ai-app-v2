@@ -8,7 +8,7 @@ from typing import List, Optional
 import json
 import asyncio
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -34,10 +34,12 @@ COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
 dynamodb = boto3.resource('dynamodb', region_name=COGNITO_REGION)
 chat_history_table = dynamodb.Table('ChatHistory')
 
+# Ensure you have a vision model like gpt-4o
 SUPPORTED_MODELS = {
+    "gpt-4o": { "type": "openai", "name": "gpt-4o" },
     "gpt-4": { "type": "openai", "name": "gpt-4" },
-    "gemini-pro": { "type": "google", "name": "gemini-1.0-pro" },
-    "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash-latest" }
+    "gemini-pro": { "type": "google", "name": "gemini-1.5-pro-latest" },
+    "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash" }
 }
 
 ## -------------------
@@ -92,6 +94,7 @@ class PromptRequest(BaseModel):
     model: str
     conversationId: Optional[str] = None
     history: Optional[List[ChatMessage]] = None
+    image: Optional[str] = None # Field for the Base64 image string
 
 ## -------------------
 ## FASTAPI APP
@@ -105,14 +108,18 @@ async def stream_generator(request_data: dict):
     user_prompt = request_data.get("prompt")
     model_name = request_data.get("model")
     history = request_data.get("history", [])
+    image_b64 = request_data.get("image") # Get the image data
     conversation_id = request_data.get("conversationId") or str(uuid.uuid4())
     user_id = request_data.get("userId")
+    
+    # Use a default prompt if an image is provided without text
+    display_prompt = user_prompt or "What's in this image?"
 
     # 1. Save user's prompt to DB
     timestamp = datetime.now(timezone.utc).isoformat()
     chat_history_table.put_item(Item={
         'conversationId': conversation_id, 'timestamp': f"{timestamp}_user",
-        'userId': user_id, 'sender': 'user', 'text': user_prompt
+        'userId': user_id, 'sender': 'user', 'text': display_prompt
     })
 
     model_config = SUPPORTED_MODELS.get(model_name)
@@ -128,12 +135,25 @@ async def stream_generator(request_data: dict):
                 for msg in history:
                     role = "assistant" if msg['role'] == "model" else msg['role']
                     messages_for_api.append({"role": role, "content": msg['content']})
-            messages_for_api.append({"role": "user", "content": user_prompt})
+            
+            # --- MULTIMODAL LOGIC ---
+            user_content = []
+            if user_prompt:
+                user_content.append({"type": "text", "text": user_prompt})
+            
+            if image_b64:
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": image_b64}
+                })
+
+            messages_for_api.append({"role": "user", "content": user_content})
             
             stream = openai.chat.completions.create(
                 model=model_config["name"],
                 messages=messages_for_api,
-                stream=True
+                stream=True,
+                max_tokens=1500 # Good practice to set a max
             )
             
             for chunk in stream:
@@ -144,9 +164,9 @@ async def stream_generator(request_data: dict):
                     await asyncio.sleep(0.01)
 
         elif model_config["type"] == "google":
-            # NOTE: Gemini streaming is slightly different. This is a basic implementation.
+            # (Gemini multimodal streaming would be added here)
             model = genai.GenerativeModel(model_config["name"])
-            stream = model.generate_content(user_prompt, stream=True)
+            stream = model.generate_content(display_prompt, stream=True)
             for chunk in stream:
                 content = chunk.text
                 full_response += content
@@ -174,13 +194,12 @@ async def stream_generator(request_data: dict):
 async def get_conversations(current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     try:
-        response = chat_history_table.query(
-	    IndexName='UserId-Timestamp-Index',
-	    KeyConditionExpression=boto3.dynamodb.conditions.Key('userId').eq(user_id),
-	    ScanIndexForward=False
+        # NOTE: This uses scan. For production at scale, a GSI is recommended.
+        response = chat_history_table.scan(
+            FilterExpression=boto3.dynamodb.conditions.Attr('userId').eq(user_id)
         )
         conversations = {}
-        for item in response.get('Items', []):
+        for item in sorted(response.get('Items', []), key=lambda x: x['timestamp'], reverse=True):
             conv_id = item['conversationId']
             if conv_id not in conversations:
                 conversations[conv_id] = {'id': conv_id, 'title': item['text'][:50]}
