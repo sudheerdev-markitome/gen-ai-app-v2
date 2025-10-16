@@ -16,5 +16,5 @@ services:
     depends_on:
       - backend
     volumes:
-  # Mount the copied certs directory
+  # Mount the copied certificates from within the project directory
       - ./certs:/etc/letsencrypt:ro
