@@ -24,12 +24,8 @@ jobs:
             # Pull the latest code (which now includes Dockerfiles)
             git pull origin main
 
-            # Stop old services if they are running, just in case
-            sudo systemctl stop nginx || true
-            pm2 stop gen-ai-backend || true
-            pm2 delete gen-ai-backend || true
-
             # Use the absolute path to docker-compose to build and run the containers
             # The --build flag tells Docker to rebuild images if the Dockerfiles have changed
             # The -d flag runs the containers in the background
-            sudo /usr/local/bin/docker-compose up --build -d
+            sudo docker-compose build --no-cache
+            sudo docker -compose up -d
