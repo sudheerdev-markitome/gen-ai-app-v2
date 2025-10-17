@@ -18,6 +18,8 @@ from sse_starlette.sse import EventSourceResponse
 
 import openai
 import google.generativeai as genai
+import chromadb
+from langchain.embeddings import OpenAIEmbeddings
 
 ## -------------------
 ## CONFIGURATION
@@ -41,6 +43,16 @@ SUPPORTED_MODELS = {
     "gemini-pro": { "type": "google", "name": "gemini-1.5-pro-latest" },
     "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash" }
 }
+
+## -------------------
+## RAG CONFIGURATION (ChromaDB)
+## -------------------
+CHROMA_HOST = "chromadb" # Docker service name for internal communication
+CHROMA_PORT = 8000
+COLLECTION_NAME = "marketing_docs"
+embeddings = OpenAIEmbeddings()
+chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+collection = chroma_client.get_or_create_collection(name=COLLECTION_NAME)
 
 ## -------------------
 ## AUTHENTICATION
@@ -94,7 +106,7 @@ class PromptRequest(BaseModel):
     model: str
     conversationId: Optional[str] = None
     history: Optional[List[ChatMessage]] = None
-    image: Optional[str] = None # Field for the Base64 image string
+    image: Optional[str] = None
 
 ## -------------------
 ## FASTAPI APP
@@ -108,12 +120,33 @@ async def stream_generator(request_data: dict):
     user_prompt = request_data.get("prompt")
     model_name = request_data.get("model")
     history = request_data.get("history", [])
-    image_b64 = request_data.get("image") # Get the image data
+    image_b64 = request_data.get("image")
     conversation_id = request_data.get("conversationId") or str(uuid.uuid4())
     user_id = request_data.get("userId")
     
-    # Use a default prompt if an image is provided without text
     display_prompt = user_prompt or "What's in this image?"
+
+    # --- RAG QUERY STEP ---
+    # Only perform RAG if there's a text prompt and no image
+    rag_prompt = user_prompt
+    if user_prompt and not image_b64:
+        try:
+            results = collection.query(
+                query_texts=[user_prompt],
+                n_results=3
+            )
+            context = "\n\n".join(results['documents'][0])
+            
+            rag_prompt = (
+                f"Based on the following context, please provide a detailed answer to the user's question.\n\n"
+                f"Context:\n{context}\n\n"
+                f"User Question: {user_prompt}"
+            )
+        except Exception as e:
+            print(f"RAG query failed: {e}")
+            # Fallback to the original prompt if RAG fails
+            rag_prompt = user_prompt
+    # -----------------------
 
     # 1. Save user's prompt to DB
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -136,10 +169,9 @@ async def stream_generator(request_data: dict):
                     role = "assistant" if msg['role'] == "model" else msg['role']
                     messages_for_api.append({"role": role, "content": msg['content']})
             
-            # --- MULTIMODAL LOGIC ---
             user_content = []
-            if user_prompt:
-                user_content.append({"type": "text", "text": user_prompt})
+            # Use the RAG-enhanced prompt for the text part
+            user_content.append({"type": "text", "text": rag_prompt})
             
             if image_b64:
                 user_content.append({
@@ -153,7 +185,7 @@ async def stream_generator(request_data: dict):
                 model=model_config["name"],
                 messages=messages_for_api,
                 stream=True,
-                max_tokens=1500 # Good practice to set a max
+                max_tokens=1500
             )
             
             for chunk in stream:
@@ -164,9 +196,8 @@ async def stream_generator(request_data: dict):
                     await asyncio.sleep(0.01)
 
         elif model_config["type"] == "google":
-            # (Gemini multimodal streaming would be added here)
             model = genai.GenerativeModel(model_config["name"])
-            stream = model.generate_content(display_prompt, stream=True)
+            stream = model.generate_content(rag_prompt, stream=True)
             for chunk in stream:
                 content = chunk.text
                 full_response += content
@@ -194,7 +225,6 @@ async def stream_generator(request_data: dict):
 async def get_conversations(current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     try:
-        # NOTE: This uses scan. For production at scale, a GSI is recommended.
         response = chat_history_table.scan(
             FilterExpression=boto3.dynamodb.conditions.Attr('userId').eq(user_id)
         )
