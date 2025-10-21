@@ -1,4 +1,5 @@
-name: Deploy to EC2 (Non-Docker)
+# Corrected workflow name to reflect Docker usage
+name: Deploy to EC2 with Docker
 
 on:
   push:
@@ -8,7 +9,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 
+    timeout-minutes: 60 # Overall job timeout
 
     steps:
       - name: Connect to server and deploy
@@ -18,16 +19,21 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
-          timeout: 600
-          script: 
-            # Navigate to  your project directory on the server
+          timeout: 600s # Timeout for the SSH step (10 minutes)
+          script: |
+            # Navigate to your project directory on the server
             cd ~/gen-ai-app
+
+            # Fetch all updates from GitHub and forcefully reset the local branch
+            echo "--- Pulling latest code ---"
             git fetch --all
             git reset --hard origin/main
 
-            # Use the absolute path to docker-compose to build and run the containers
-            # The --build flag tells Docker to rebuild images if the Dockerfiles have changed
-            # The -d flag runs the containers in the background
-            # Start build in background, capture logs to /var/log/deploy-$(date +%s).log
-            nohup sudo docker-compose up --build -d > /var/log/deploy-$(date +%s).log 2>&1 &
-            sudo docker-compose up --build -d
+            # Build and run the application with Docker Compose V2
+            # Use --build to rebuild images if Dockerfiles changed
+            # Use -d to run in detached mode (background)
+            echo "--- Building and deploying Docker containers ---"
+            sudo docker compose up --build -d
+
+            # Optional: Clean up unused Docker images/containers afterwards
+            # echo
