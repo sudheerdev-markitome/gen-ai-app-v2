@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 60 
 
     steps:
       - name: Connect to server and deploy
@@ -17,15 +18,16 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
-          script: |
-            # Navigate to your project directory on the server
+          timeout: 600
+          script: 
+            # Navigate to  your project directory on the server
             cd ~/gen-ai-app
-
-            # Pull the latest code (which now includes Dockerfiles)
             git fetch --all
             git reset --hard origin/main
 
             # Use the absolute path to docker-compose to build and run the containers
             # The --build flag tells Docker to rebuild images if the Dockerfiles have changed
             # The -d flag runs the containers in the background
+            # Start build in background, capture logs to /var/log/deploy-$(date +%s).log
+            nohup sudo docker-compose up --build -d > /var/log/deploy-$(date +%s).log 2>&1 &
             sudo docker-compose up --build -d
