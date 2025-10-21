@@ -18,3 +18,12 @@ services:
     volumes:
       # Map the new certs folder to a simple path inside the container
       - ./certs:/etc/ssl/certs/nginx:ro
+
+# --- ADD THIS NEW SERVICE ---
+  chromadb:
+    image: chromadb/chroma
+    restart: unless-stopped
+    ports:
+      - "8001:8000" # Expose Chroma's API on port 8001 of the host
+    volumes:
+      - ./chroma_data:/chroma/.chroma/index # Persist the database on the host

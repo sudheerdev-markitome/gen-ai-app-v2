@@ -248,7 +248,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           sx={{ display: 'flex', flexDirection: 'column', height: '100vh', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: '280px' }}
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h4" component="h1" gutterBottom>AI Chat</Typography>
+            <Typography variant="h4" component="h1" gutterBottom>Markitome AI</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <FormControlLabel
                 control={<Switch checked={darkMode} onChange={handleThemeChange} />}

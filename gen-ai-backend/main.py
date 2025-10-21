@@ -8,7 +8,9 @@ from typing import List, Optional
 import json
 import asyncio
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+import shutil
+import subprocess # To run the ingest script
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -237,6 +239,48 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+# --- NEW ENDPOINT FOR FILE UPLOAD ---
+KNOWLEDGE_BASE_DIR = "knowledge_base"
+
+@app.post("/api/upload-knowledge")
+async def upload_knowledge_document(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    # Ensure the knowledge_base directory exists
+    os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
+    
+    # Define the path to save the file
+    file_path = os.path.join(KNOWLEDGE_BASE_DIR, file.filename)
+    
+    # Save the uploaded file
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
+    finally:
+        file.file.close()
+
+    # --- Option A: Trigger ingestion immediately (simpler for now) ---
+    try:
+        print(f"Running ingestion for {file.filename}...")
+        # Note: Ensure the venv Python is accessible or use absolute path
+        # Using sys.executable ensures we use the Python from the running process (Uvicorn/Docker)
+        python_executable = "/usr/local/bin/python" # Path inside Docker container
+        result = subprocess.run([python_executable, "ingest.py"], capture_output=True, text=True, check=True)
+        print("Ingestion script output:", result.stdout)
+        if result.stderr:
+            print("Ingestion script error:", result.stderr)
+
+    except subprocess.CalledProcessError as e:
+         print(f"Ingestion script failed: {e}")
+         # Decide if you want to raise an HTTP error or just log it
+         # raise HTTPException(status_code=500, detail=f"File saved, but ingestion failed: {e.stderr}")
+    except Exception as e:
+         print(f"An unexpected error occurred during ingestion: {e}")
+         # raise HTTPException(status_code=500, detail=f"File saved, but ingestion encountered an error: {str(e)}")
+
+
+    return {"filename": file.filename, "detail": "File uploaded and ingestion triggered."}
+
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation_messages(conversation_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
@@ -257,3 +301,4 @@ async def generate_text_stream(request: PromptRequest, current_user: dict = Depe
     request_data["userId"] = current_user.get("sub")
     
     return EventSourceResponse(stream_generator(request_data))
+
