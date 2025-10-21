@@ -19,7 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 import openai
 import google.generativeai as genai
 import chromadb
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 ## -------------------
 ## CONFIGURATION
