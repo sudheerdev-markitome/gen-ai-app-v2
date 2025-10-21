@@ -33,7 +33,7 @@ jobs:
             # Use --build to rebuild images if Dockerfiles changed
             # Use -d to run in detached mode (background)
             echo "--- Building and deploying Docker containers ---"
-            sudo docker compose up --build -d
+            sudo docker-compose up --build -d
 
             # Optional: Clean up unused Docker images/containers afterwards
             # echo
