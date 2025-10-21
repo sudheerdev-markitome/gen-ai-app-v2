@@ -7,21 +7,22 @@ import uuid
 from typing import List, Optional
 import json
 import asyncio
-
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 import shutil
-import subprocess # To run the ingest script
+import subprocess
+
+from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from jose import jwt, jwk
 from jose.exceptions import JOSEError
 from sse_starlette.sse import EventSourceResponse
+import boto3.dynamodb.conditions # Ensure this is imported for Key function
 
 import openai
 import google.generativeai as genai
 import chromadb
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings # Corrected import
 
 ## -------------------
 ## CONFIGURATION
@@ -45,6 +46,8 @@ SUPPORTED_MODELS = {
     "gemini-pro": { "type": "google", "name": "gemini-1.5-pro-latest" },
     "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash" }
 }
+
+KNOWLEDGE_BASE_DIR = "knowledge_base" # Directory for uploaded documents
 
 ## -------------------
 ## RAG CONFIGURATION (ChromaDB)
@@ -116,7 +119,7 @@ class PromptRequest(BaseModel):
 app = FastAPI()
 
 ## -------------------
-## STREAMING LOGIC
+## STREAMING LOGIC (Includes RAG)
 ## -------------------
 async def stream_generator(request_data: dict):
     user_prompt = request_data.get("prompt")
@@ -129,32 +132,33 @@ async def stream_generator(request_data: dict):
     display_prompt = user_prompt or "What's in this image?"
 
     # --- RAG QUERY STEP ---
-    # Only perform RAG if there's a text prompt and no image
-    rag_prompt = user_prompt
-    if user_prompt and not image_b64:
+    rag_prompt = user_prompt or display_prompt # Use display_prompt if user_prompt is empty
+    if user_prompt and not image_b64: # Only do RAG for text prompts
         try:
             results = collection.query(
                 query_texts=[user_prompt],
                 n_results=3
             )
-            context = "\n\n".join(results['documents'][0])
-            
-            rag_prompt = (
-                f"Based on the following context, please provide a detailed answer to the user's question.\n\n"
-                f"Context:\n{context}\n\n"
-                f"User Question: {user_prompt}"
-            )
+            if results and results['documents'] and results['documents'][0]:
+                 context = "\n\n".join(results['documents'][0])
+                 rag_prompt = (
+                     f"Based on the following context, please provide a detailed answer to the user's question.\n\n"
+                     f"Context:\n{context}\n\n"
+                     f"User Question: {user_prompt}"
+                 )
+            else:
+                print("No relevant documents found in ChromaDB.")
+                rag_prompt = user_prompt # Fallback if no docs found
         except Exception as e:
             print(f"RAG query failed: {e}")
-            # Fallback to the original prompt if RAG fails
-            rag_prompt = user_prompt
+            rag_prompt = user_prompt # Fallback on error
     # -----------------------
 
     # 1. Save user's prompt to DB
     timestamp = datetime.now(timezone.utc).isoformat()
     chat_history_table.put_item(Item={
         'conversationId': conversation_id, 'timestamp': f"{timestamp}_user",
-        'userId': user_id, 'sender': 'user', 'text': display_prompt
+        'userId': user_id, 'sender': 'user', 'text': display_prompt # Save the original prompt/default
     })
 
     model_config = SUPPORTED_MODELS.get(model_name)
@@ -172,8 +176,7 @@ async def stream_generator(request_data: dict):
                     messages_for_api.append({"role": role, "content": msg['content']})
             
             user_content = []
-            # Use the RAG-enhanced prompt for the text part
-            user_content.append({"type": "text", "text": rag_prompt})
+            user_content.append({"type": "text", "text": rag_prompt}) # Use RAG prompt here
             
             if image_b64:
                 user_content.append({
@@ -199,7 +202,7 @@ async def stream_generator(request_data: dict):
 
         elif model_config["type"] == "google":
             model = genai.GenerativeModel(model_config["name"])
-            stream = model.generate_content(rag_prompt, stream=True)
+            stream = model.generate_content(rag_prompt, stream=True) # Use RAG prompt
             for chunk in stream:
                 content = chunk.text
                 full_response += content
@@ -227,6 +230,7 @@ async def stream_generator(request_data: dict):
 async def get_conversations(current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     try:
+        # NOTE: Using scan. GSI is recommended for better performance at scale.
         response = chat_history_table.scan(
             FilterExpression=boto3.dynamodb.conditions.Attr('userId').eq(user_id)
         )
@@ -234,52 +238,15 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
         for item in sorted(response.get('Items', []), key=lambda x: x['timestamp'], reverse=True):
             conv_id = item['conversationId']
             if conv_id not in conversations:
-                conversations[conv_id] = {'id': conv_id, 'title': item['text'][:50]}
-        return list(conversations.values())
+                # Use first 50 chars of the earliest message as title, fallback to user prompt
+                title_text = item.get('text', 'New Chat')[:50]
+                conversations[conv_id] = {'id': conv_id, 'title': title_text}
+        
+        # Sort final list alphabetically by title (optional)
+        return sorted(list(conversations.values()), key=lambda x: x['title'])
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-# --- NEW ENDPOINT FOR FILE UPLOAD ---
-KNOWLEDGE_BASE_DIR = "knowledge_base"
-
-@app.post("/api/upload-knowledge")
-async def upload_knowledge_document(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    # Ensure the knowledge_base directory exists
-    os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
-    
-    # Define the path to save the file
-    file_path = os.path.join(KNOWLEDGE_BASE_DIR, file.filename)
-    
-    # Save the uploaded file
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
-    finally:
-        file.file.close()
-
-    # --- Option A: Trigger ingestion immediately (simpler for now) ---
-    try:
-        print(f"Running ingestion for {file.filename}...")
-        # Note: Ensure the venv Python is accessible or use absolute path
-        # Using sys.executable ensures we use the Python from the running process (Uvicorn/Docker)
-        python_executable = "/usr/local/bin/python" # Path inside Docker container
-        result = subprocess.run([python_executable, "ingest.py"], capture_output=True, text=True, check=True)
-        print("Ingestion script output:", result.stdout)
-        if result.stderr:
-            print("Ingestion script error:", result.stderr)
-
-    except subprocess.CalledProcessError as e:
-         print(f"Ingestion script failed: {e}")
-         # Decide if you want to raise an HTTP error or just log it
-         # raise HTTPException(status_code=500, detail=f"File saved, but ingestion failed: {e.stderr}")
-    except Exception as e:
-         print(f"An unexpected error occurred during ingestion: {e}")
-         # raise HTTPException(status_code=500, detail=f"File saved, but ingestion encountered an error: {str(e)}")
-
-
-    return {"filename": file.filename, "detail": "File uploaded and ingestion triggered."}
 
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation_messages(conversation_id: str, current_user: dict = Depends(get_current_user)):
@@ -295,10 +262,75 @@ async def get_conversation_messages(conversation_id: str, current_user: dict = D
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("sub")
+    
+    try:
+        response = chat_history_table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
+        )
+        items = response.get('Items', [])
+
+        if not items:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        if items[0].get('userId') != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        with chat_history_table.batch_writer() as batch:
+            for item in items:
+                batch.delete_item(
+                    Key={
+                        'conversationId': item['conversationId'],
+                        'timestamp': item['timestamp']
+                    }
+                )
+        
+        print(f"Deleted {len(items)} items for conversation {conversation_id}")
+        return {"detail": f"Conversation {conversation_id} deleted successfully."}
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        print(f"Error deleting conversation {conversation_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error while deleting conversation: {str(e)}")
+
+@app.post("/api/upload-knowledge")
+async def upload_knowledge_document(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
+    file_path = os.path.join(KNOWLEDGE_BASE_DIR, file.filename)
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
+    finally:
+        file.file.close()
+
+    # Trigger ingestion immediately
+    try:
+        print(f"Running ingestion for {file.filename}...")
+        python_executable = "/usr/local/bin/python" # Assumes standard Python path in Docker image
+        result = subprocess.run([python_executable, "ingest.py"], capture_output=True, text=True, check=True)
+        print("Ingestion script output:", result.stdout)
+        if result.stderr:
+            print("Ingestion script error:", result.stderr)
+
+    except subprocess.CalledProcessError as e:
+         print(f"Ingestion script failed: {e.stderr}")
+         # Return a specific error if ingestion fails after upload
+         return {"filename": file.filename, "detail": f"File uploaded, but ingestion failed: {e.stderr}"}
+    except Exception as e:
+         print(f"An unexpected error occurred during ingestion: {e}")
+         return {"filename": file.filename, "detail": f"File uploaded, but ingestion encountered an error: {str(e)}"}
+
+    return {"filename": file.filename, "detail": "File uploaded and ingestion triggered successfully."}
+
 @app.post("/api/generate")
 async def generate_text_stream(request: PromptRequest, current_user: dict = Depends(get_current_user)):
     request_data = request.model_dump()
     request_data["userId"] = current_user.get("sub")
     
     return EventSourceResponse(stream_generator(request_data))
-

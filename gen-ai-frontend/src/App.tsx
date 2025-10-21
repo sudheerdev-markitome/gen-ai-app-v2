@@ -73,6 +73,30 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<null | HTMLDivElement>(null);
 
+  // --- NEW: Delete Handler ---
+  const handleDeleteConversation = async (id: string) => {
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${CONVERSATIONS_URL}/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to delete conversation');
+      }
+      // Remove the conversation from the local state
+      setConversations(prev => prev.filter(conv => conv.id !== id));
+      // If the deleted conversation was active, go back to a new chat state
+      if (activeConversationId === id) {
+        handleNewConversation();
+      }
+    } catch (error) {
+      setError(`Deletion failed: ${(error as Error).message}`);
+      throw error; // Re-throw error so sidebar can show status
+    }
+  };
+
   // --- Theme & API Configuration ---
   const lightTheme = createTheme({ palette: { mode: 'light' } });
   const darkTheme = createTheme({ palette: { mode: 'dark' } });
@@ -242,6 +266,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           onSelectConversation={handleSelectConversation}
           onNewConversation={handleNewConversation}
           activeConversationId={activeConversationId}
+          onDeleteConversation={handleDeleteConversation} // --- Pass the new handler ---
         />
         <Container
           maxWidth={false}
