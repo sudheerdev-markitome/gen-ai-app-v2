@@ -1,6 +1,5 @@
 # ingest.py
 import os
-from langchain.document_loaders import DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader
 from langchain.vectorstores import Chroma
