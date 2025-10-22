@@ -60,4 +60,4 @@ langchain-text-splitters
 tiktoken
 pypdf
 python-multipart
-unstructured
+unstructured[pdf]
