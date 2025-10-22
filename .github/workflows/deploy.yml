@@ -29,6 +29,13 @@ jobs:
             git fetch --all
             git reset --hard origin/main
 
+            # --- ADD THIS CLEANUP STEP ---
+            echo "--- Cleaning up Docker resources ---"
+            # Prune unused images, containers, networks, build cache.
+            # -a checks all, -f forces without prompt. || true ignores errors if nothing to prune.
+            sudo docker system prune -af || true
+            # -----------------------------
+
             # Build and run the application with Docker Compose V2
             # Use --build to rebuild images if Dockerfiles changed
             # Use -d to run in detached mode (background)
