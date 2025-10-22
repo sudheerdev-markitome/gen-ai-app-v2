@@ -2,7 +2,7 @@
 import os
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader
-from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 import chromadb
 from dotenv import load_dotenv
 
