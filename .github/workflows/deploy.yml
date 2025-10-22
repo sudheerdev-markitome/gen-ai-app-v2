@@ -14,6 +14,7 @@ jobs:
     steps:
       - name: Connect to server and deploy
         uses: appleboy/ssh-action@master
+        timeout-minutes: 30 # <-- ADD THIS LINE (Increase timeout to 30 mins)
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
