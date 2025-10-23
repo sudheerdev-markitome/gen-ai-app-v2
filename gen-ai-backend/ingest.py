@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 # Load environment variables (for OPENAI_API_KEY)
 load_dotenv()
 
+# added openaiembeddings import
+
 # --- Configuration ---
 KNOWLEDGE_BASE_DIR = "knowledge_base"
 # Point this to your server's IP where ChromaDB will be running
