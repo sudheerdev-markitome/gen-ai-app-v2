@@ -246,22 +246,6 @@ async def delete_conversation(conversation_id: str, current_user: dict = Depends
         print(f"Error deleting conversation {conversation_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error while deleting conversation: {str(e)}")
 
-# Remove or keep this endpoint based on your choice
-@app.post("/api/upload-knowledge")
-async def upload_knowledge_document(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    # This endpoint now only saves the file, as ingest.py is removed/disabled
-    os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
-    file_path = os.path.join(KNOWLEDGE_BASE_DIR, file.filename)
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
-    finally:
-        file.file.close()
-    # Remove the subprocess call to ingest.py
-    return {"filename": file.filename, "detail": "File uploaded successfully. (Ingestion removed)"}
-
 @app.post("/api/generate")
 async def generate_text_stream(request: PromptRequest, current_user: dict = Depends(get_current_user)):
     request_data = request.model_dump()
