@@ -4,6 +4,12 @@ FROM python:3.12-slim
 # Set the working directory inside the container
 WORKDIR /app
 
+# --- ADD THESE LINES ---
+# Install system dependencies needed by OpenCV (used by unstructured[pdf])
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1-mesa-glx && \
+    rm -rf /var/lib/apt/lists/*
+# ---------------------
+
 # Copy the requirements file first to leverage Docker's layer caching
 COPY requirements.txt .
 
