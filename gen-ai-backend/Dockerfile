@@ -6,7 +6,7 @@ WORKDIR /app
 
 # --- ADD THESE LINES ---
 # Install system dependencies needed by OpenCV (used by unstructured[pdf])
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1 && \
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && \
     rm -rf /var/lib/apt/lists/*
 # ---------------------
 
