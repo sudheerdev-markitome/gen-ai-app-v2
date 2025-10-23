@@ -6,7 +6,7 @@ WORKDIR /app
 
 # --- ADD THESE LINES ---
 # Install system dependencies needed by OpenCV (used by unstructured[pdf])
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1-mesa-glx && \
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 && \
     rm -rf /var/lib/apt/lists/*
 # ---------------------
 
