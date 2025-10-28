@@ -1,5 +1,5 @@
 // src/ConversationSidebar.tsx
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react'; // Removed useRef
 import {
   Drawer,
   List,
@@ -9,19 +9,17 @@ import {
   Button,
   Box,
   Typography,
-  CircularProgress,
-  Alert,
-  IconButton, // Added for delete button
-  Dialog, // Added for confirmation dialog
+  IconButton, // Keep for delete button
+  Dialog, // Keep for confirmation dialog
   DialogActions,
   DialogContent,
   DialogContentText,
-  DialogTitle
+  DialogTitle,
+  CircularProgress // Keep for delete loading
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
-import DeleteIcon from '@mui/icons-material/Delete'; // Added delete icon
-import { fetchAuthSession } from '@aws-amplify/auth'; // For getting auth token
+import DeleteIcon from '@mui/icons-material/Delete'; // Keep delete icon
+// Removed UploadFileIcon and fetchAuthSession (assuming token is handled in App.tsx)
 
 // Interface for a single conversation item
 interface Conversation {
@@ -40,14 +38,6 @@ interface ConversationSidebarProps {
 
 const drawerWidth = 280; // Define the width of the sidebar
 
-// Helper function to get the current user's authentication token
-const getAuthToken = async () => {
-  const session = await fetchAuthSession();
-  const idToken = session.tokens?.idToken?.toString();
-  if (!idToken) throw new Error("User is not authenticated.");
-  return idToken;
-};
-
 export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   conversations,
   onSelectConversation,
@@ -55,56 +45,22 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   onDeleteConversation, // Destructure the delete handler
   activeConversationId,
 }) => {
-  // Ref for the hidden file input element
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  // State for upload loading indicator
-  const [isUploading, setIsUploading] = useState(false);
-  // State for upload success/error messages
-  const [uploadStatus, setUploadStatus] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
   // State for controlling the delete confirmation dialog
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   // State to store the ID of the conversation marked for deletion
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
   // State for delete loading indicator
   const [isDeleting, setIsDeleting] = useState(false);
+  // State for showing status messages (can be used for delete success/error)
+  const [status, setStatus] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
 
-  // --- Upload Handlers ---
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    setUploadStatus(null);
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const token = await getAuthToken();
-      const response = await fetch('/api/upload-knowledge', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || 'Upload failed');
-      setUploadStatus({ message: `File '${file.name}' uploaded. Ingestion started.`, severity: 'success' });
-    } catch (error: any) {
-      setUploadStatus({ message: `Upload failed: ${error.message}`, severity: 'error' });
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
 
   // --- Delete Handlers ---
   const handleDeleteClick = (event: React.MouseEvent, conversationId: string) => {
     event.stopPropagation(); // Prevent ListItemButton click when clicking the icon
     setConversationToDelete(conversationId);
     setOpenDeleteDialog(true);
+    setStatus(null); // Clear previous statuses
   };
 
   const handleCloseDeleteDialog = () => {
@@ -115,13 +71,14 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   const handleConfirmDelete = async () => {
     if (!conversationToDelete) return;
     setIsDeleting(true);
-    setUploadStatus(null); // Clear other statuses
+    setStatus(null); // Clear previous statuses
 
     try {
       await onDeleteConversation(conversationToDelete); // Call parent handler
-      setUploadStatus({ message: 'Conversation deleted successfully.', severity: 'success'});
+      setStatus({ message: 'Conversation deleted successfully.', severity: 'success'});
+      // No need to manually filter here, App.tsx handles state update
     } catch (error: any) {
-      setUploadStatus({ message: `Failed to delete conversation: ${error.message}`, severity: 'error' });
+      setStatus({ message: `Failed to delete conversation: ${error.message}`, severity: 'error' });
     } finally {
       setIsDeleting(false);
       handleCloseDeleteDialog(); // Close the dialog regardless of outcome
@@ -142,42 +99,27 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
         },
       }}
     >
-      {/* --- Top Section: New Chat & Upload --- */}
+      {/* --- Top Section: New Chat Only --- */}
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Button
           variant="outlined"
           fullWidth
           startIcon={<AddIcon />}
           onClick={onNewConversation}
-          sx={{ mb: 2 }}
+          // sx={{ mb: 2 }} // Removed margin as upload button is gone
         >
           New Chat
         </Button>
-
-        <input
-          type="file"
-          ref={fileInputRef}
-          style={{ display: 'none' }}
-          onChange={handleFileChange}
-        />
-        <Button
-          variant="contained"
-          fullWidth
-          startIcon={isUploading ? <CircularProgress size={20} color="inherit" /> : <UploadFileIcon />}
-          onClick={handleUploadClick}
-          disabled={isUploading}
-        >
-          {isUploading ? 'Uploading...' : 'Upload Document'}
-        </Button>
-        {uploadStatus && (
-          <Alert severity={uploadStatus.severity} sx={{ mt: 1, fontSize: '0.8rem' }}>
-            {uploadStatus.message}
+         {/* Display status message (for delete success/error) */}
+         {status && (
+          <Alert severity={status.severity} sx={{ mt: 1, fontSize: '0.8rem' }}>
+            {status.message}
           </Alert>
         )}
       </Box>
 
       {/* --- Conversation History List --- */}
-      <List sx={{ overflowY: 'auto', flexGrow: 1 }}> {/* Allow list to grow and scroll */}
+      <List sx={{ overflowY: 'auto', flexGrow: 1 }}>
         <ListItem>
           <Typography variant="overline" sx={{ color: 'text.secondary' }}>History</Typography>
         </ListItem>
@@ -241,3 +183,6 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
     </Drawer>
   );
 };
+
+// Export default if needed, or keep as named export
+// export default ConversationSidebar;
