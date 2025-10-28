@@ -1,4 +1,4 @@
-version: '3.8'
+# version: '3.8' # Obsolete, can be removed
 
 services:
   backend:
@@ -6,15 +6,13 @@ services:
     restart: unless-stopped
     env_file:
       - ./gen-ai-backend/.env
+    depends_on:
+      - chromadb
 
-  frontend:
-    build: ./gen-ai-frontend
+  chromadb:
+    image: chromadb/chroma
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-    depends_on:
-      - backend
+      - "8001:8000" # For direct access if needed
     volumes:
-      # Map the new certs folder to a simple path inside the container
-      - ./certs:/etc/ssl/certs/nginx:ro
+      - ./chroma_data:/chroma/.chroma/index

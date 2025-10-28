@@ -1,47 +1,35 @@
-# Corrected workflow name to reflect Docker usage
-name: Deploy to EC2 with Docker
+script: |
+# Navigate to your project directory on the server
+        cd ~/gen-ai-app
 
-on:
-  push:
-    branches:
-      - main
+# Pull the latest code
+        echo "--- Pulling latest code ---"
+        git fetch --all
+        git reset --hard origin/main
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60 # Overall job timeout
+# Build the frontend static files
+        echo "--- Building frontend ---"
+        cd gen-ai-frontend
+        # Load NVM
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        npm install
+        npm run build
 
-    steps:
-      - name: Connect to server and deploy
-        uses: appleboy/ssh-action@master
-        timeout-minutes: 60 # <-- ADD THIS LINE (Increase timeout to 30 mins)
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.PORT }}
-          timeout: 600s # Timeout for the SSH step (10 minutes)
-          script: |
-            # Navigate to your project directory on the server
-            cd ~/gen-ai-app
+        # Deploy frontend files to Nginx root
+        echo "--- Deploying frontend files ---"
+        sudo rm -rf /var/www/html/* # Clear old files
+        sudo cp -R dist/* /var/www/html/
+        cd .. # Back to project root
 
-            # Fetch all updates from GitHub and forcefully reset the local branch
-            echo "--- Pulling latest code ---"
-            git fetch --all
-            git reset --hard origin/main
+        # Cleanup old Docker resources
+        echo "--- Cleaning up Docker resources ---"
+        sudo docker system prune -af || true
 
-            # --- ADD THIS CLEANUP STEP ---
-            echo "--- Cleaning up Docker resources ---"
-            # Prune unused images, containers, networks, build cache.
-            # -a checks all, -f forces without prompt. || true ignores errors if nothing to prune.
-            sudo docker system prune -af || true
-            # -----------------------------
+        # Build and run backend/DB containers
+        echo "--- Building and deploying backend/DB containers ---"
+        sudo docker compose up --build -d
 
-            # Build and run the application with Docker Compose V2
-            # Use --build to rebuild images if Dockerfiles changed
-            # Use -d to run in detached mode (background)
-            echo "--- Building and deploying Docker containers ---"
-            sudo docker-compose up --build -d
-
-            # Optional: Clean up unused Docker images/containers afterwards
-            # echo
+        # Restart the host Nginx service to apply config changes (if any)
+        echo "--- Restarting host Nginx ---"
+        sudo systemctl restart nginx
