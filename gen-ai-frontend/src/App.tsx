@@ -10,17 +10,15 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
   Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
   Typography, Alert, TextField, FormControl, InputLabel, Select, MenuItem,
-  Button, CircularProgress, Switch, FormControlLabel, IconButton
+  Button, CircularProgress, Switch, FormControlLabel
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import PersonIcon from '@mui/icons-material/Person';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
-import ImageIcon from '@mui/icons-material/Image';
-import CloseIcon from '@mui/icons-material/Close';
 
-import { ConversationSidebar } from './ConversationSidebar';
+import { ConversationSidebar } from './ConversationSidebar'; // Assuming this file is updated to remove upload button
 
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -65,37 +63,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [prompt, setPrompt] = useState<string>('');
-  const [model, setModel] = useState<SupportedModel>('gpt-4o');
+  const [model, setModel] = useState<SupportedModel>('gpt-4o'); // Default model
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [darkMode, setDarkMode] = useState(false);
-  const [image, setImage] = useState<string | null>(null); // State for Base64 image
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<null | HTMLDivElement>(null);
-
-  // --- NEW: Delete Handler ---
-  const handleDeleteConversation = async (id: string) => {
-    try {
-      const token = await getAuthToken();
-      const response = await fetch(`${CONVERSATIONS_URL}/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to delete conversation');
-      }
-      // Remove the conversation from the local state
-      setConversations(prev => prev.filter(conv => conv.id !== id));
-      // If the deleted conversation was active, go back to a new chat state
-      if (activeConversationId === id) {
-        handleNewConversation();
-      }
-    } catch (error) {
-      setError(`Deletion failed: ${(error as Error).message}`);
-      throw error; // Re-throw error so sidebar can show status
-    }
-  };
 
   // --- Theme & API Configuration ---
   const lightTheme = createTheme({ palette: { mode: 'light' } });
@@ -114,12 +86,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   // --- Effects ---
+  // Load conversations on initial mount
   useEffect(() => {
     const loadConversations = async () => {
+      setError(''); // Clear previous errors
       try {
         const token = await getAuthToken();
         const res = await fetch(CONVERSATIONS_URL, { headers: { 'Authorization': `Bearer ${token}` } });
-        if (!res.ok) throw new Error("Failed to fetch conversations from server");
+        if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.detail || "Failed to fetch conversations from server");
+        }
         const data = await res.json();
         setConversations(data);
       } catch (err: any) {
@@ -127,40 +104,33 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       }
     };
     loadConversations();
-  }, []);
+  }, []); // Empty dependency array means run once on mount
 
+  // Scroll to bottom when messages change
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   // --- Event Handlers ---
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id);
-    setMessages([]);
+    setMessages([]); // Clear current messages
     setError('');
-    setIsLoading(true);
+    setIsLoading(true); // Show loading while fetching history
     try {
       const token = await getAuthToken();
       const res = await fetch(`${CONVERSATIONS_URL}/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (!res.ok) throw new Error("Failed to fetch messages");
+      if (!res.ok) {
+          const errorData = await res.json();
+          throw new Error(errorData.detail || "Failed to fetch messages");
+      }
       const data = await res.json();
       const sortedMessages = data.sort((a: any, b: any) => a.timestamp.localeCompare(b.timestamp));
       setMessages(sortedMessages.map((msg: any) => ({ sender: msg.sender, text: msg.text })));
     } catch (err: any) {
       setError(`Failed to load messages: ${err.message}`);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Hide loading indicator
     }
   };
 
@@ -168,56 +138,92 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     setActiveConversationId(null);
     setMessages([]);
     setPrompt('');
-    setImage(null);
+    setError(''); // Clear errors on new chat
+  };
+
+  const handleDeleteConversation = async (id: string) => {
+    setError(''); // Clear previous errors
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${CONVERSATIONS_URL}/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to delete conversation');
+      }
+      // Remove the conversation from the local state
+      setConversations(prev => prev.filter(conv => conv.id !== id));
+      // If the deleted conversation was active, switch to new chat state
+      if (activeConversationId === id) {
+        handleNewConversation();
+      }
+    } catch (error) {
+      setError(`Deletion failed: ${(error as Error).message}`);
+      throw error; // Re-throw so sidebar can potentially show status
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if ((!prompt.trim() && !image) || isLoading) return;
+    if (!prompt.trim() || isLoading) return; // Only need prompt now
 
-    const userMessageText = prompt.trim() || (image ? "What's in this image?" : "");
-    const userMessage: Message = { sender: 'user', text: userMessageText };
+    const userMessage: Message = { sender: 'user', text: prompt };
     const currentPrompt = prompt;
-    const currentHistory = [...messages];
+    const currentHistory = [...messages]; // History before adding the new message
 
+    // Add user message and AI placeholder immediately
     setMessages(prev => [...prev, userMessage, { sender: 'ai', text: '' }]);
-    setPrompt('');
-    setImage(null); // Clear image after submission
+    setPrompt(''); // Clear input field
     setIsLoading(true);
     setError('');
 
     try {
         const token = await getAuthToken();
         const historyForApi = currentHistory.map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'model',
+            role: msg.sender === 'user' ? 'user' : 'model', // Use 'model' for AI role
             content: msg.text
         }));
 
+        // Call the backend API
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
             body: JSON.stringify({
                 prompt: currentPrompt,
                 model,
                 conversationId: activeConversationId,
                 history: historyForApi,
-                image: image // Send the Base64 image string
+                // image: null // Explicitly removed image field
             }),
         });
 
-        if (!res.body) throw new Error("Response body is empty.");
+        if (!res.ok) {
+            // Handle non-streaming errors from the initial request
+            const errorData = await res.json();
+            throw new Error(errorData.detail || `Server error: ${res.status}`);
+        }
 
+        if (!res.body) {
+            throw new Error("Response body is empty.");
+        }
+
+        // --- Start processing the stream ---
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let leftover = '';
+        let leftover = ''; // Buffer for incomplete SSE messages
 
         while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (done) break; // Exit loop when stream is finished
 
             const chunk = leftover + decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n\n');
-            leftover = lines.pop() || '';
+            const lines = chunk.split('\n\n'); // SSE messages are separated by double newlines
+            leftover = lines.pop() || ''; // Buffer the last potentially incomplete line
 
             for (const line of lines) {
                 if (line.startsWith('data:')) {
@@ -225,55 +231,69 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                     try {
                         const parsed = JSON.parse(jsonStr);
                         if (parsed.text) {
-                            setMessages(prev => {
-                                const updatedMessages = [...prev];
+                            // Append received text chunk using functional update
+                            setMessages(prevMessages => {
+                                const updatedMessages = [...prevMessages];
                                 const lastMessage = updatedMessages[updatedMessages.length - 1];
-                                updatedMessages[updatedMessages.length - 1] = {
-                                    ...lastMessage,
-                                    text: lastMessage.text + parsed.text,
-                                };
+                                // Ensure we're updating the AI's message
+                                if (lastMessage && lastMessage.sender === 'ai') {
+                                    updatedMessages[updatedMessages.length - 1] = {
+                                        ...lastMessage,
+                                        text: lastMessage.text + parsed.text,
+                                    };
+                                }
                                 return updatedMessages;
                             });
                         } else if (parsed.event === 'done') {
+                            // If it was a new conversation, update the sidebar
                             if (!activeConversationId) {
                                 const newConvId = parsed.conversationId;
                                 setActiveConversationId(newConvId);
-                                setConversations(prev => [{ id: newConvId, title: userMessageText.substring(0, 50) }, ...prev]);
+                                // Add new conversation to the top of the list
+                                setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]);
                             }
+                            // Stream finished normally
                         } else if (parsed.error) {
+                            // Handle errors sent explicitly in the stream
                             setError(parsed.error);
                         }
                     } catch (e) {
-                        console.error("Failed to parse JSON chunk:", jsonStr);
+                        console.error("Failed to parse JSON chunk:", jsonStr, e);
+                        setError("Received malformed data from server.");
                     }
                 }
             }
         }
+        // --- End of stream processing ---
+
     } catch (err: any) {
         setError(err.message);
+        // Clean up the optimistic UI updates (user msg + AI placeholder) if the request fails
         setMessages(prev => prev.slice(0, -2));
     } finally {
-        setIsLoading(false);
+        setIsLoading(false); // Ensure loading indicator stops
     }
   };
 
+  // --- JSX Rendering ---
   return (
     <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex' }}>
+      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}> {/* Prevent body scroll */}
         <ConversationSidebar
           conversations={conversations}
           onSelectConversation={handleSelectConversation}
           onNewConversation={handleNewConversation}
+          onDeleteConversation={handleDeleteConversation} // Pass delete handler
           activeConversationId={activeConversationId}
-          onDeleteConversation={handleDeleteConversation} // --- Pass the new handler ---
         />
         <Container
-          maxWidth={false}
-          sx={{ display: 'flex', flexDirection: 'column', height: '100vh', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: '280px' }}
+          maxWidth={false} // Disable maxWidth to fill space
+          sx={{ display: 'flex', flexDirection: 'column', height: '100%', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: `${drawerWidth}px` }} // Use variable width
         >
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h4" component="h1" gutterBottom>Markitome AI</Typography>
+          {/* Header */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            <Typography variant="h4" component="h1" gutterBottom noWrap>AI Chat</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <FormControlLabel
                 control={<Switch checked={darkMode} onChange={handleThemeChange} />}
@@ -283,6 +303,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             </Box>
           </Box>
 
+          {/* Chat History Area */}
           <Paper elevation={3} sx={{ flexGrow: 1, overflowY: 'auto', p: 2, mb: 2 }}>
             <List>
               {messages.map((msg, index) => (
@@ -293,10 +314,10 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   <ListItemText
                     primary={msg.sender === 'user' ? `You (${user?.attributes?.email})` : 'AI'}
                     secondary={
-                      <Typography component="div" variant="body2" sx={{ color: 'text.primary' }}>
+                      <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word' }}>
                         {msg.sender === 'ai' ? (
                           <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>
-                            {msg.text}
+                            {msg.text || "..."} {/* Show placeholder if text is empty */}
                           </ReactMarkdown>
                         ) : (
                           <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>
@@ -306,32 +327,26 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   />
                 </ListItem>
               ))}
+              {/* Dummy div for auto-scrolling */}
               <div ref={chatEndRef} />
             </List>
           </Paper>
 
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {/* Error Display Area */}
+          {error && <Alert severity="error" sx={{ mb: 2, flexShrink: 0 }}>{error}</Alert>}
 
-          <Box component="form" onSubmit={handleSubmit}>
-            {image && (
-              <Box sx={{ position: 'relative', mb: 1, width: '100px', height: '100px' }}>
-                <img src={image} alt="preview" style={{ width: '100%', height: '100%', borderRadius: '8px', objectFit: 'cover' }} />
-                <IconButton
-                  size="small"
-                  onClick={() => setImage(null)}
-                  sx={{ position: 'absolute', top: 2, right: 2, bgcolor: 'rgba(0,0,0,0.6)', color: 'white', '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' } }}
-                >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              </Box>
-            )}
+          {/* Input Form Area */}
+          <Box component="form" onSubmit={handleSubmit} sx={{ flexShrink: 0 }}>
             <TextField
-              label="Type your message or upload an image..."
+              label="Type your message..." // Simplified label
               variant="outlined"
               fullWidth
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={isLoading}
+              multiline // Allow multiline input
+              rows={2} // Start with 2 rows
+              maxRows={6} // Allow expansion up to 6 rows
             />
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -344,16 +359,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                     <MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
                   </Select>
                 </FormControl>
-                <input
-                  type="file"
-                  ref={imageInputRef}
-                  onChange={handleImageChange}
-                  style={{ display: 'none' }}
-                  accept="image/*"
-                />
-                <IconButton onClick={() => imageInputRef.current?.click()} disabled={isLoading} sx={{ ml: 1 }}>
-                  <ImageIcon />
-                </IconButton>
+                {/* Image upload button removed */}
               </Box>
               <Button type="submit" variant="contained" endIcon={isLoading ? null : <SendIcon />} disabled={isLoading}>
                 {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Send'}
