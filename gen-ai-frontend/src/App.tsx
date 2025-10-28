@@ -18,7 +18,7 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 
-import { ConversationSidebar } from './ConversationSidebar'; // Assuming this file is updated to remove upload button
+import { ConversationSidebar } from './ConversationSidebar';
 
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -26,6 +26,9 @@ import materialDark from 'react-syntax-highlighter/dist/cjs/styles/prism/materia
 import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/material-light';
 
 Amplify.configure(awsExports);
+
+// --- Define drawerWidth (FIX 1) ---
+const drawerWidth = 280;
 
 // --- Type Definitions ---
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
@@ -63,7 +66,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [prompt, setPrompt] = useState<string>('');
-  const [model, setModel] = useState<SupportedModel>('gpt-4o'); // Default model
+  const [model, setModel] = useState<SupportedModel>('gpt-4o');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [darkMode, setDarkMode] = useState(false);
@@ -86,10 +89,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   // --- Effects ---
-  // Load conversations on initial mount
   useEffect(() => {
     const loadConversations = async () => {
-      setError(''); // Clear previous errors
+      setError('');
       try {
         const token = await getAuthToken();
         const res = await fetch(CONVERSATIONS_URL, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -104,9 +106,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       }
     };
     loadConversations();
-  }, []); // Empty dependency array means run once on mount
+  }, []);
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -114,9 +115,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   // --- Event Handlers ---
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id);
-    setMessages([]); // Clear current messages
+    setMessages([]);
     setError('');
-    setIsLoading(true); // Show loading while fetching history
+    setIsLoading(true);
     try {
       const token = await getAuthToken();
       const res = await fetch(`${CONVERSATIONS_URL}/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -130,7 +131,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err: any) {
       setError(`Failed to load messages: ${err.message}`);
     } finally {
-      setIsLoading(false); // Hide loading indicator
+      setIsLoading(false);
     }
   };
 
@@ -138,11 +139,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     setActiveConversationId(null);
     setMessages([]);
     setPrompt('');
-    setError(''); // Clear errors on new chat
+    setError('');
   };
 
   const handleDeleteConversation = async (id: string) => {
-    setError(''); // Clear previous errors
+    setError('');
     try {
       const token = await getAuthToken();
       const response = await fetch(`${CONVERSATIONS_URL}/${id}`, {
@@ -153,40 +154,36 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Failed to delete conversation');
       }
-      // Remove the conversation from the local state
       setConversations(prev => prev.filter(conv => conv.id !== id));
-      // If the deleted conversation was active, switch to new chat state
       if (activeConversationId === id) {
         handleNewConversation();
       }
     } catch (error) {
       setError(`Deletion failed: ${(error as Error).message}`);
-      throw error; // Re-throw so sidebar can potentially show status
+      throw error;
     }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!prompt.trim() || isLoading) return; // Only need prompt now
+    if (!prompt.trim() || isLoading) return;
 
     const userMessage: Message = { sender: 'user', text: prompt };
     const currentPrompt = prompt;
-    const currentHistory = [...messages]; // History before adding the new message
+    const currentHistory = [...messages];
 
-    // Add user message and AI placeholder immediately
     setMessages(prev => [...prev, userMessage, { sender: 'ai', text: '' }]);
-    setPrompt(''); // Clear input field
+    setPrompt('');
     setIsLoading(true);
     setError('');
 
     try {
         const token = await getAuthToken();
         const historyForApi = currentHistory.map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'model', // Use 'model' for AI role
+            role: msg.sender === 'user' ? 'user' : 'model',
             content: msg.text
         }));
 
-        // Call the backend API
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
             headers: {
@@ -198,32 +195,28 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 model,
                 conversationId: activeConversationId,
                 history: historyForApi,
-                // image: null // Explicitly removed image field
             }),
         });
 
         if (!res.ok) {
-            // Handle non-streaming errors from the initial request
             const errorData = await res.json();
             throw new Error(errorData.detail || `Server error: ${res.status}`);
         }
-
         if (!res.body) {
             throw new Error("Response body is empty.");
         }
 
-        // --- Start processing the stream ---
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let leftover = ''; // Buffer for incomplete SSE messages
+        let leftover = '';
 
         while (true) {
             const { done, value } = await reader.read();
-            if (done) break; // Exit loop when stream is finished
+            if (done) break;
 
             const chunk = leftover + decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n\n'); // SSE messages are separated by double newlines
-            leftover = lines.pop() || ''; // Buffer the last potentially incomplete line
+            const lines = chunk.split('\n\n');
+            leftover = lines.pop() || '';
 
             for (const line of lines) {
                 if (line.startsWith('data:')) {
@@ -231,11 +224,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                     try {
                         const parsed = JSON.parse(jsonStr);
                         if (parsed.text) {
-                            // Append received text chunk using functional update
                             setMessages(prevMessages => {
                                 const updatedMessages = [...prevMessages];
                                 const lastMessage = updatedMessages[updatedMessages.length - 1];
-                                // Ensure we're updating the AI's message
                                 if (lastMessage && lastMessage.sender === 'ai') {
                                     updatedMessages[updatedMessages.length - 1] = {
                                         ...lastMessage,
@@ -245,16 +236,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                                 return updatedMessages;
                             });
                         } else if (parsed.event === 'done') {
-                            // If it was a new conversation, update the sidebar
                             if (!activeConversationId) {
                                 const newConvId = parsed.conversationId;
                                 setActiveConversationId(newConvId);
-                                // Add new conversation to the top of the list
                                 setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]);
                             }
-                            // Stream finished normally
                         } else if (parsed.error) {
-                            // Handle errors sent explicitly in the stream
                             setError(parsed.error);
                         }
                     } catch (e) {
@@ -264,14 +251,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 }
             }
         }
-        // --- End of stream processing ---
-
     } catch (err: any) {
         setError(err.message);
-        // Clean up the optimistic UI updates (user msg + AI placeholder) if the request fails
         setMessages(prev => prev.slice(0, -2));
     } finally {
-        setIsLoading(false); // Ensure loading indicator stops
+        setIsLoading(false);
     }
   };
 
@@ -279,17 +263,18 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   return (
     <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
       <CssBaseline />
-      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}> {/* Prevent body scroll */}
+      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         <ConversationSidebar
           conversations={conversations}
           onSelectConversation={handleSelectConversation}
           onNewConversation={handleNewConversation}
-          onDeleteConversation={handleDeleteConversation} // Pass delete handler
+          onDeleteConversation={handleDeleteConversation}
           activeConversationId={activeConversationId}
         />
+        {/* Use the defined drawerWidth constant here (FIX 1) */}
         <Container
-          maxWidth={false} // Disable maxWidth to fill space
-          sx={{ display: 'flex', flexDirection: 'column', height: '100%', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: `${drawerWidth}px` }} // Use variable width
+          maxWidth={false}
+          sx={{ display: 'flex', flexDirection: 'column', height: '100%', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: `${drawerWidth}px` }}
         >
           {/* Header */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -312,12 +297,13 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                     {msg.sender === 'user' ? <PersonIcon /> : <SmartToyIcon />}
                   </Avatar>
                   <ListItemText
-                    primary={msg.sender === 'user' ? `You (${user?.attributes?.email})` : 'AI'}
+                    // Provide fallback if email is undefined (FIX 2)
+                    primary={msg.sender === 'user' ? `You (${user?.attributes?.email ?? 'User'})` : 'AI'}
                     secondary={
                       <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word' }}>
                         {msg.sender === 'ai' ? (
                           <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>
-                            {msg.text || "..."} {/* Show placeholder if text is empty */}
+                            {msg.text || "..."}
                           </ReactMarkdown>
                         ) : (
                           <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>
@@ -327,7 +313,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   />
                 </ListItem>
               ))}
-              {/* Dummy div for auto-scrolling */}
               <div ref={chatEndRef} />
             </List>
           </Paper>
@@ -338,15 +323,15 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           {/* Input Form Area */}
           <Box component="form" onSubmit={handleSubmit} sx={{ flexShrink: 0 }}>
             <TextField
-              label="Type your message..." // Simplified label
+              label="Type your message..."
               variant="outlined"
               fullWidth
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={isLoading}
-              multiline // Allow multiline input
-              rows={2} // Start with 2 rows
-              maxRows={6} // Allow expansion up to 6 rows
+              multiline
+              rows={2}
+              maxRows={6}
             />
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
