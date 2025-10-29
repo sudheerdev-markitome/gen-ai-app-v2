@@ -27,8 +27,7 @@ import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/materi
 
 Amplify.configure(awsExports);
 
-// --- Define drawerWidth (FIX 1) ---
-const drawerWidth = 280;
+const drawerWidth = 280; // Define sidebar width
 
 // --- Type Definitions ---
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
@@ -89,6 +88,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   // --- Effects ---
+  // Load conversations on initial mount, prioritize custom title
   useEffect(() => {
     const loadConversations = async () => {
       setError('');
@@ -100,14 +100,20 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             throw new Error(errorData.detail || "Failed to fetch conversations from server");
         }
         const data = await res.json();
-        setConversations(data);
+        // Map data prioritizing explicit 'title' attribute if it exists from rename
+        setConversations(data.map((item: any) => ({
+            id: item.conversationId || item.id, // Handle potential key differences
+            // Use item.title if present (from rename), otherwise fallback to item.text
+            title: item.title || item.text?.substring(0, 50) || 'New Chat'
+        })));
       } catch (err: any) {
         setError(`Failed to load conversations: ${err.message}`);
       }
     };
     loadConversations();
-  }, []);
+  }, []); // Run once on mount
 
+  // Scroll to bottom when messages change
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -164,17 +170,48 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     }
   };
 
+  const handleRenameConversation = async (id: string, newTitle: string): Promise<Conversation> => {
+    setError('');
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${CONVERSATIONS_URL}/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ new_title: newTitle })
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to rename conversation');
+      }
+      const updatedConversation = await response.json();
+
+      // Update the conversation list in the local state
+      setConversations(prev =>
+        prev.map(conv =>
+          conv.id === id ? { ...conv, title: updatedConversation.title } : conv
+        )
+      );
+      return updatedConversation;
+
+    } catch (error) {
+      setError(`Rename failed: ${(error as Error).message}`);
+      throw error;
+    }
+  };
+
+  // --- Non-Streaming Submit Handler ---
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Removed image check, ensure prompt exists
-    if (!prompt.trim() || isLoading) return; 
+    if (!prompt.trim() || isLoading) return;
 
     const userMessage: Message = { sender: 'user', text: prompt };
     const currentPrompt = prompt;
     const currentHistory = [...messages];
 
-    // Add user message immediately (Optimistic UI)
-    setMessages(prev => [...prev, userMessage]); 
+    setMessages(prev => [...prev, userMessage]); // Add user message optimistically
     setPrompt('');
     setIsLoading(true);
     setError('');
@@ -186,7 +223,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             content: msg.text
         }));
 
-        // Standard fetch, expects a single JSON response
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
             headers: {
@@ -198,33 +234,21 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 model,
                 conversationId: activeConversationId,
                 history: historyForApi,
-                // image: null // Image removed
+                // image: null // Image field removed
             }),
         });
 
-        // Check for HTTP errors first
         if (!res.ok) {
-            // Try to parse error JSON, fallback to status text
             let errorDetail = `Server error: ${res.status}`;
-            try {
-                const errorData = await res.json();
-                errorDetail = errorData.detail || errorDetail;
-            } catch (parseError) {
-                // Ignore if error response wasn't JSON
-            }
+            try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
             throw new Error(errorDetail);
         }
 
-        // --- Wait for the FULL JSON response ---
-        const data = await res.json(); 
-        // ------------------------------------
+        const data = await res.json(); // Wait for full JSON response
 
         const aiMessage: Message = { sender: 'ai', text: data.text };
+        setMessages(prev => [...prev, aiMessage]); // Add AI response
 
-        // Add the complete AI message once received
-        setMessages(prev => [...prev, aiMessage]); 
-
-        // If it was a new conversation, update sidebar
         if (!activeConversationId && data.conversationId) {
             const newConvId = data.conversationId;
             setActiveConversationId(newConvId);
@@ -233,8 +257,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
 
     } catch (err: any) {
         setError(err.message);
-        // Remove the optimistic user message if the request fails
-        setMessages(prev => prev.slice(0, -1)); 
+        setMessages(prev => prev.slice(0, -1)); // Remove optimistic user message on error
     } finally {
         setIsLoading(false);
     }
@@ -250,16 +273,16 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           onSelectConversation={handleSelectConversation}
           onNewConversation={handleNewConversation}
           onDeleteConversation={handleDeleteConversation}
+          onRenameConversation={handleRenameConversation} // Pass rename handler
           activeConversationId={activeConversationId}
         />
-        {/* Use the defined drawerWidth constant here (FIX 1) */}
         <Container
           maxWidth={false}
           sx={{ display: 'flex', flexDirection: 'column', height: '100%', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: `${drawerWidth}px` }}
         >
           {/* Header */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-            <Typography variant="h4" component="h1" gutterBottom noWrap>Markitome AI</Typography>
+            <Typography variant="h4" component="h1" gutterBottom noWrap>AI Chat</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <FormControlLabel
                 control={<Switch checked={darkMode} onChange={handleThemeChange} />}
@@ -278,13 +301,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                     {msg.sender === 'user' ? <PersonIcon /> : <SmartToyIcon />}
                   </Avatar>
                   <ListItemText
-                    // Provide fallback if email is undefined (FIX 2)
                     primary={msg.sender === 'user' ? `You (${user?.attributes?.email ?? 'User'})` : 'AI'}
                     secondary={
                       <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word' }}>
                         {msg.sender === 'ai' ? (
                           <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>
-                            {msg.text || "..."}
+                            {msg.text || (isLoading && index === messages.length -1 ? "..." : "")} {/* Show placeholder only for the last AI msg while loading */}
                           </ReactMarkdown>
                         ) : (
                           <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>

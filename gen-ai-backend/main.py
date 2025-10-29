@@ -2,6 +2,7 @@
 import os
 import requests
 import boto3
+import boto3.dynamodb.conditions
 from datetime import datetime, timezone
 import uuid
 from typing import List, Optional
@@ -18,6 +19,11 @@ import boto3.dynamodb.conditions # Ensure this is imported for Key function
 
 import openai
 import google.generativeai as genai
+
+# --- Add this new Pydantic Model ---
+class RenameRequest(BaseModel):
+    new_title: str
+
 
 ## -------------------
 ## CONFIGURATION
@@ -218,6 +224,60 @@ async def delete_conversation(conversation_id: str, current_user: dict = Depends
     except Exception as e:
         print(f"Error deleting conversation {conversation_id} for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error while deleting conversation: {str(e)}")
+
+# --- NEW: RENAME CONVERSATION ENDPOINT ---
+@app.put("/api/conversations/{conversation_id}")
+async def rename_conversation(conversation_id: str, request: RenameRequest, current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("sub")
+    new_title = request.new_title.strip() # Remove leading/trailing whitespace
+
+    if not new_title:
+        raise HTTPException(status_code=400, detail="New title cannot be empty")
+    if len(new_title) > 100: # Optional: Add a length limit
+        raise HTTPException(status_code=400, detail="Title cannot exceed 100 characters")
+
+    try:
+        # 1. Query to find all messages for the conversation, sorted by timestamp
+        response = chat_history_table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id),
+            ScanIndexForward=True # Sort oldest to newest
+        )
+        items = response.get('Items', [])
+
+        if not items:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # 2. Security check: Ensure the user owns this conversation
+        if items[0].get('userId') != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # 3. Identify the timestamp of the very first message
+        first_message_timestamp = items[0]['timestamp']
+
+        # 4. Update only the first message item with the new title attribute
+        # We store the custom title in a dedicated 'title' attribute.
+        # The frontend will need to prioritize this attribute if it exists.
+        chat_history_table.update_item(
+            Key={
+                'conversationId': conversation_id,
+                'timestamp': first_message_timestamp
+            },
+            UpdateExpression="SET title = :t",
+            ExpressionAttributeValues={
+                ':t': new_title
+            }
+        )
+
+        print(f"Renamed conversation {conversation_id} to '{new_title}'")
+        # Return the updated conversation details
+        return {"id": conversation_id, "title": new_title}
+
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise known HTTP errors
+    except Exception as e:
+        print(f"Error renaming conversation {conversation_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error while renaming conversation: {str(e)}")
+
 
 # Non-streaming version of the generate endpoint
 @app.post("/api/generate")

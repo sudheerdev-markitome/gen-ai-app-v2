@@ -16,11 +16,14 @@ import {
   DialogContentText,
   DialogTitle,
   CircularProgress, // Keep for delete loading
-  Alert
+  Alert,
+  TextField
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete'; // Keep delete icon
-// Removed UploadFileIcon and fetchAuthSession (assuming token is handled in App.tsx)
+import EditIcon from '@mui/icons-material/Edit'; // Add Edit Icon
+import CheckIcon from '@mui/icons-material/Check'; // Add Check Icon for saving
+import CloseIcon from '@mui/icons-material/Close'; // Add Close Icon for canceling
 
 // Interface for a single conversation item
 interface Conversation {
@@ -34,6 +37,7 @@ interface ConversationSidebarProps {
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
   onDeleteConversation: (id: string) => Promise<void>; // Handler for deleting
+  onRenameConversation: (id: string, newTitle: string) => Promise<Conversation>; // Add rename handler prop
   activeConversationId: string | null;
 }
 
@@ -44,8 +48,13 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   onSelectConversation,
   onNewConversation,
   onDeleteConversation, // Destructure the delete handler
+  onRenameConversation,
   activeConversationId,
+  
 }) => {
+  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
   // State for controlling the delete confirmation dialog
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   // State to store the ID of the conversation marked for deletion
@@ -86,32 +95,70 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
     }
   };
 
-  return (
+  // --- NEW: Rename Handling ---
+  const handleEditClick = (event: React.MouseEvent, conversation: Conversation) => {
+    event.stopPropagation();
+    setEditingConversationId(conversation.id);
+    setRenameValue(conversation.title); // Pre-fill input with current title
+    setStatus(null);
+  };
+
+  const handleRenameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setRenameValue(event.target.value);
+  };
+
+  const handleCancelRename = (event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    setEditingConversationId(null);
+    setRenameValue('');
+  };
+
+  const handleSaveRename = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!editingConversationId || !renameValue.trim() || isRenaming) return;
+
+    setIsRenaming(true);
+    setStatus(null);
+
+    try {
+      await onRenameConversation(editingConversationId, renameValue.trim());
+      setStatus({ message: 'Conversation renamed.', severity: 'success' });
+      handleCancelRename(); // Exit editing mode on success
+    } catch (error: any) {
+      setStatus({ message: `Rename failed: ${error.message}`, severity: 'error' });
+      // Keep editing mode active on failure so user can retry/edit
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+  // -------------------------
+
+return (
     <Drawer
-      variant="permanent"
-      anchor="left"
+      variant="permanent" // Keeps the sidebar always visible
+      anchor="left"       // Positions the sidebar on the left
       sx={{
-        width: drawerWidth,
-        flexShrink: 0,
-        '& .MuiDrawer-paper': {
+        width: drawerWidth, // Set the width
+        flexShrink: 0,      // Prevent the sidebar from shrinking
+        '& .MuiDrawer-paper': { // Style the paper component inside the Drawer
           width: drawerWidth,
-          boxSizing: 'border-box',
-          bgcolor: 'background.paper',
+          boxSizing: 'border-box', // Include padding and border in the element's total width and height
+          bgcolor: 'background.paper', // Use theme's background color
         },
       }}
     >
-      {/* --- Top Section: New Chat Only --- */}
+      {/* --- Top Section: New Chat & Status Messages --- */}
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Button
           variant="outlined"
           fullWidth
           startIcon={<AddIcon />}
           onClick={onNewConversation}
-          // sx={{ mb: 2 }} // Removed margin as upload button is gone
+          // Removed sx={{ mb: 2 }} as upload button is gone
         >
           New Chat
         </Button>
-         {/* Display status message (for delete success/error) */}
+         {/* Display status messages (e.g., for delete success/error) */}
          {status && (
           <Alert severity={status.severity} sx={{ mt: 1, fontSize: '0.8rem' }}>
             {status.message}
@@ -120,47 +167,82 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
       </Box>
 
       {/* --- Conversation History List --- */}
-      <List sx={{ overflowY: 'auto', flexGrow: 1 }}>
+      <List sx={{ overflowY: 'auto', flexGrow: 1 }}> {/* Allow list to scroll and fill available space */}
         <ListItem>
           <Typography variant="overline" sx={{ color: 'text.secondary' }}>History</Typography>
         </ListItem>
         {conversations.map((conv) => (
           <ListItem
-             key={conv.id}
-             disablePadding
-             secondaryAction={ // Add delete button to the right side
-               <IconButton
-                 edge="end"
-                 aria-label="delete conversation"
-                 onClick={(e) => handleDeleteClick(e, conv.id)}
-                 size="small"
-                 sx={{ mr: 1 }} // Add margin if needed
-               >
-                 <DeleteIcon fontSize="inherit" />
-               </IconButton>
+             key={conv.id} // Unique key for each list item
+             disablePadding // Remove default padding
+             secondaryAction={ // Content aligned to the right side of the list item
+               // Show different icons based on whether this item is being edited
+               editingConversationId === conv.id ? (
+                 // Save/Cancel icons when editing
+                 <>
+                   <IconButton edge="end" size="small" onClick={handleSaveRename} disabled={isRenaming}>
+                     {isRenaming ? <CircularProgress size={16} /> : <CheckIcon fontSize="inherit" />}
+                   </IconButton>
+                   <IconButton edge="end" size="small" onClick={handleCancelRename} disabled={isRenaming} sx={{ ml: 0.5 }}>
+                     <CloseIcon fontSize="inherit" />
+                   </IconButton>
+                 </>
+               ) : (
+                 // Edit/Delete icons when not editing
+                 <>
+                   <IconButton edge="end" size="small" onClick={(e) => handleEditClick(e, conv)} sx={{ mr: 0.5 }}>
+                     <EditIcon fontSize="inherit" />
+                   </IconButton>
+                   <IconButton edge="end" size="small" onClick={(e) => handleDeleteClick(e, conv.id)}>
+                     <DeleteIcon fontSize="inherit" />
+                   </IconButton>
+                 </>
+               )
              }
+             // Adjust right padding to accommodate the icons
+             sx={{ pr: '70px' }}
            >
-            <ListItemButton
-              selected={conv.id === activeConversationId} // Highlight active chat
-              onClick={() => onSelectConversation(conv.id)}
-              sx={{ pr: '40px' }} // Add padding to prevent text overlap with icon
-            >
-              <ListItemText
-                primary={conv.title}
-                primaryTypographyProps={{
-                  noWrap: true, // Prevent long titles from wrapping
-                  sx: { fontSize: '0.9rem' }
+            {/* Show TextField for editing or ListItemButton for display */}
+            {editingConversationId === conv.id ? (
+              <TextField
+                value={renameValue}           // Controlled input value
+                onChange={handleRenameChange} // Update state on change
+                variant="standard"          // Minimalist text field style
+                size="small"
+                fullWidth                   // Take up available width
+                autoFocus                   // Focus when it appears
+                disabled={isRenaming}       // Disable while saving
+                // Keyboard shortcuts for save (Enter) and cancel (Escape)
+                onKeyDown={(e) => {
+                   if (e.key === 'Enter') handleSaveRename(e as any);
+                   if (e.key === 'Escape') handleCancelRename();
                  }}
-               />
-            </ListItemButton>
+                 // Style to roughly match the ListItemText appearance
+                sx={{ ml: 1, mr: 1, my: '6px' }}
+              />
+            ) : (
+              // Standard display button for the conversation
+              <ListItemButton
+                selected={conv.id === activeConversationId} // Highlight if active
+                onClick={() => onSelectConversation(conv.id)} // Select conversation on click
+              >
+                <ListItemText
+                  primary={conv.title} // Display the conversation title
+                  primaryTypographyProps={{
+                    noWrap: true,       // Prevent title from wrapping to multiple lines
+                    sx: { fontSize: '0.9rem' } // Slightly smaller font size
+                   }}
+                />
+              </ListItemButton>
+            )}
           </ListItem>
         ))}
       </List>
 
       {/* --- Delete Confirmation Dialog --- */}
       <Dialog
-        open={openDeleteDialog}
-        onClose={handleCloseDeleteDialog}
+        open={openDeleteDialog}          // Control visibility with state
+        onClose={handleCloseDeleteDialog} // Handler to close the dialog
         aria-labelledby="delete-confirmation-dialog-title"
         aria-describedby="delete-confirmation-dialog-description"
       >
@@ -173,17 +255,16 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
           </DialogContentText>
         </DialogContent>
         <DialogActions>
+          {/* Cancel Button */}
           <Button onClick={handleCloseDeleteDialog} disabled={isDeleting}>
             Cancel
           </Button>
+          {/* Delete Button */}
           <Button onClick={handleConfirmDelete} color="error" autoFocus disabled={isDeleting}>
+            {/* Show loading spinner while deleting */}
             {isDeleting ? <CircularProgress size={20} /> : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>
     </Drawer>
   );
-};
-
-// Export default if needed, or keep as named export
-// export default ConversationSidebar;
