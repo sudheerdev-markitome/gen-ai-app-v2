@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 import uuid
 from typing import List, Optional
 import json
-import shutil # Keep for file upload if endpoint is kept
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File # Keep UploadFile/File if keeping upload
+
+from fastapi import FastAPI, Depends, HTTPException, status, Request # Keep UploadFile/File if keeping upload
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -42,9 +42,6 @@ SUPPORTED_MODELS = {
     "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash" }
 }
 
-KNOWLEDGE_BASE_DIR = "knowledge_base" # Directory for uploaded documents (if keeping upload endpoint)
-
-## -------------------
 ## AUTHENTICATION
 ## -------------------
 COGNITO_JWKS_URL = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
@@ -221,25 +218,6 @@ async def delete_conversation(conversation_id: str, current_user: dict = Depends
     except Exception as e:
         print(f"Error deleting conversation {conversation_id} for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error while deleting conversation: {str(e)}")
-
-# Optional: Keep or remove the upload endpoint based on your needs
-# If removed, also remove UploadFile, File, shutil imports and KNOWLEDGE_BASE_DIR
-@app.post("/api/upload-knowledge")
-async def upload_knowledge_document(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    # This endpoint now only saves the file, as RAG/ingestion is removed
-    os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
-    file_path = os.path.join(KNOWLEDGE_BASE_DIR, file.filename)
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        print(f"Error saving uploaded file {file.filename}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Could not save file: {e}")
-    finally:
-        if file and hasattr(file, 'file') and not file.file.closed:
-             file.file.close()
-    return {"filename": file.filename, "detail": "File uploaded successfully. (Ingestion removed)"}
-
 
 # Non-streaming version of the generate endpoint
 @app.post("/api/generate")
