@@ -164,15 +164,16 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!prompt.trim() || isLoading) return;
+    if (!prompt.trim() || isLoading) return; // Removed image check as RAG is removed
 
     const userMessage: Message = { sender: 'user', text: prompt };
     const currentPrompt = prompt;
     const currentHistory = [...messages];
 
-    setMessages(prev => [...prev, userMessage, { sender: 'ai', text: '' }]);
+    // Add user message immediately (Optimistic UI)
+    setMessages(prev => [...prev, userMessage]);
     setPrompt('');
     setIsLoading(true);
     setError('');
@@ -184,6 +185,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             content: msg.text
         }));
 
+        // Standard fetch, expects JSON response
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
             headers: {
@@ -195,6 +197,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 model,
                 conversationId: activeConversationId,
                 history: historyForApi,
+                // image: null // Image removed
             }),
         });
 
@@ -202,62 +205,29 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             const errorData = await res.json();
             throw new Error(errorData.detail || `Server error: ${res.status}`);
         }
-        if (!res.body) {
-            throw new Error("Response body is empty.");
+
+        const data = await res.json(); // Wait for the full JSON response
+
+        const aiMessage: Message = { sender: 'ai', text: data.text };
+
+        // Add the AI message once it's fully received
+        setMessages(prev => [...prev, aiMessage]);
+
+        // If it was a new conversation, update sidebar
+        if (!activeConversationId) {
+            const newConvId = data.conversationId;
+            setActiveConversationId(newConvId);
+            setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]);
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let leftover = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = leftover + decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n\n');
-            leftover = lines.pop() || '';
-
-            for (const line of lines) {
-                if (line.startsWith('data:')) {
-                    const jsonStr = line.replace('data: ', '');
-                    try {
-                        const parsed = JSON.parse(jsonStr);
-                        if (parsed.text) {
-                            setMessages(prevMessages => {
-                                const updatedMessages = [...prevMessages];
-                                const lastMessage = updatedMessages[updatedMessages.length - 1];
-                                if (lastMessage && lastMessage.sender === 'ai') {
-                                    updatedMessages[updatedMessages.length - 1] = {
-                                        ...lastMessage,
-                                        text: lastMessage.text + parsed.text,
-                                    };
-                                }
-                                return updatedMessages;
-                            });
-                        } else if (parsed.event === 'done') {
-                            if (!activeConversationId) {
-                                const newConvId = parsed.conversationId;
-                                setActiveConversationId(newConvId);
-                                setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]);
-                            }
-                        } else if (parsed.error) {
-                            setError(parsed.error);
-                        }
-                    } catch (e) {
-                        console.error("Failed to parse JSON chunk:", jsonStr, e);
-                        setError("Received malformed data from server.");
-                    }
-                }
-            }
-        }
     } catch (err: any) {
         setError(err.message);
-        setMessages(prev => prev.slice(0, -2));
+        // Remove the optimistic user message if the request fails
+        setMessages(prev => prev.slice(0, -1));
     } finally {
         setIsLoading(false);
     }
-  };
+};
 
   // --- JSX Rendering ---
   return (
@@ -278,7 +248,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         >
           {/* Header */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-            <Typography variant="h4" component="h1" gutterBottom noWrap>AI Chat</Typography>
+            <Typography variant="h4" component="h1" gutterBottom noWrap>Markitome AI</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <FormControlLabel
                 control={<Switch checked={darkMode} onChange={handleThemeChange} />}
