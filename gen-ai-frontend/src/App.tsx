@@ -164,16 +164,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     }
   };
 
-const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!prompt.trim() || isLoading) return; // Removed image check as RAG is removed
+    // Removed image check, ensure prompt exists
+    if (!prompt.trim() || isLoading) return; 
 
     const userMessage: Message = { sender: 'user', text: prompt };
     const currentPrompt = prompt;
     const currentHistory = [...messages];
 
     // Add user message immediately (Optimistic UI)
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage]); 
     setPrompt('');
     setIsLoading(true);
     setError('');
@@ -185,7 +186,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
             content: msg.text
         }));
 
-        // Standard fetch, expects JSON response
+        // Standard fetch, expects a single JSON response
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
             headers: {
@@ -201,20 +202,30 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
             }),
         });
 
+        // Check for HTTP errors first
         if (!res.ok) {
-            const errorData = await res.json();
-            throw new Error(errorData.detail || `Server error: ${res.status}`);
+            // Try to parse error JSON, fallback to status text
+            let errorDetail = `Server error: ${res.status}`;
+            try {
+                const errorData = await res.json();
+                errorDetail = errorData.detail || errorDetail;
+            } catch (parseError) {
+                // Ignore if error response wasn't JSON
+            }
+            throw new Error(errorDetail);
         }
 
-        const data = await res.json(); // Wait for the full JSON response
+        // --- Wait for the FULL JSON response ---
+        const data = await res.json(); 
+        // ------------------------------------
 
         const aiMessage: Message = { sender: 'ai', text: data.text };
 
-        // Add the AI message once it's fully received
-        setMessages(prev => [...prev, aiMessage]);
+        // Add the complete AI message once received
+        setMessages(prev => [...prev, aiMessage]); 
 
         // If it was a new conversation, update sidebar
-        if (!activeConversationId) {
+        if (!activeConversationId && data.conversationId) {
             const newConvId = data.conversationId;
             setActiveConversationId(newConvId);
             setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]);
@@ -223,11 +234,11 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     } catch (err: any) {
         setError(err.message);
         // Remove the optimistic user message if the request fails
-        setMessages(prev => prev.slice(0, -1));
+        setMessages(prev => prev.slice(0, -1)); 
     } finally {
         setIsLoading(false);
     }
-};
+  };
 
   // --- JSX Rendering ---
   return (
