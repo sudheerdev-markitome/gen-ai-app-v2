@@ -25,6 +25,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import materialDark from 'react-syntax-highlighter/dist/cjs/styles/prism/material-dark';
 import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/material-light';
 import StopCircleIcon from '@mui/icons-material/StopCircle'; // Import Stop icon
+import { ContentCopy as ContentCopyIcon, Check as CheckIcon } from '@mui/icons-material';
 
 Amplify.configure(awsExports);
 
@@ -71,6 +72,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [error, setError] = useState<string>('');
   const [darkMode, setDarkMode] = useState(false);
   const chatEndRef = useRef<null | HTMLDivElement>(null);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null); // For visual feedback
 
   // --- Theme & API Configuration ---
   const lightTheme = createTheme({ palette: { mode: 'light' } });
@@ -202,6 +204,21 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       throw error;
     }
   };
+
+  // --- NEW: Copy Handler ---
+  const handleCopyText = async (textToCopy: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedMessageIndex(index); // Indicate success
+      // Optionally, reset the icon after a short delay
+      setTimeout(() => setCopiedMessageIndex(null), 1500);
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+      // Optionally show an error toast/message here
+      setError("Failed to copy text to clipboard."); // Use existing error state or a toast
+    }
+  };
+  // -----------------------
 
   // --- NEW: Stop Generating Handler ---
   const handleStopGenerating = () => {
@@ -340,7 +357,25 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                         )}
                       </Typography>
                     }
+                  
                   />
+                  {/* --- ADD COPY BUTTON FOR AI MESSAGES --- */}
+                    {msg.sender === 'ai' && msg.text && !isLoading && (
+                       <Box sx={{ alignSelf: 'flex-end', mt: 0.5 }}>
+                         <IconButton
+                           size="small"
+                           onClick={() => handleCopyText(msg.text, index)}
+                           aria-label="copy response"
+                         >
+                           {/* Show checkmark briefly after copying */}
+                           {copiedMessageIndex === index ?
+                             <CheckIcon fontSize="inherit" color="success" /> :
+                             <ContentCopyIcon fontSize="inherit" />
+                           }
+                         </IconButton>
+                       </Box>
+                    )}
+                    {/* ------------------------------------- */}
                 </ListItem>
               ))}
               <div ref={chatEndRef} />
