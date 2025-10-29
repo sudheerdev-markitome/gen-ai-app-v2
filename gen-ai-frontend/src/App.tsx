@@ -24,6 +24,7 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import materialDark from 'react-syntax-highlighter/dist/cjs/styles/prism/material-dark';
 import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/material-light';
+import StopCircleIcon from '@mui/icons-material/StopCircle'; // Import Stop icon
 
 Amplify.configure(awsExports);
 
@@ -202,7 +203,27 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     }
   };
 
-  // --- Non-Streaming Submit Handler ---
+  // --- NEW: Stop Generating Handler ---
+  const handleStopGenerating = () => {
+    if (abortController) {
+      abortController.abort(); // Send cancel signal to fetch
+      setAbortController(null); // Clear the controller
+      setIsLoading(false); // Manually set loading to false
+      // Optionally remove the partial AI message placeholder
+      setMessages(prev => {
+        const lastMessage = prev[prev.length - 1];
+        // Only remove if it's an empty AI placeholder
+        if (lastMessage && lastMessage.sender === 'ai' && lastMessage.text === '') {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
+      setError("Generation stopped by user."); // Optional: Set an error/status message
+    }
+  };
+
+
+  // --- UPDATED: handleSubmit ---
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!prompt.trim() || isLoading) return;
@@ -211,57 +232,63 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     const currentPrompt = prompt;
     const currentHistory = [...messages];
 
-    setMessages(prev => [...prev, userMessage]); // Add user message optimistically
+    setMessages(prev => [...prev, userMessage]); // Add user message (No AI placeholder needed here for non-streaming)
     setPrompt('');
     setIsLoading(true);
     setError('');
 
+    // --- Create and store AbortController ---
+    const controller = new AbortController();
+    setAbortController(controller);
+    // ------------------------------------
+
     try {
         const token = await getAuthToken();
-        const historyForApi = currentHistory.map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'model',
-            content: msg.text
-        }));
+        const historyForApi = currentHistory.map(msg => ({ /* ... */ }));
 
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                prompt: currentPrompt,
-                model,
-                conversationId: activeConversationId,
-                history: historyForApi,
-                // image: null // Image field removed
-            }),
+            headers: { /* ... */ },
+            body: JSON.stringify({ /* ... */ }),
+            signal: controller.signal // --- Pass the signal to fetch ---
         });
 
-        if (!res.ok) {
-            let errorDetail = `Server error: ${res.status}`;
-            try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
-            throw new Error(errorDetail);
+        // --- Check for abort before processing response ---
+        if (controller.signal.aborted) {
+          console.log("Fetch aborted by user.");
+          // No need to set error here, handleStopGenerating does it.
+          return; // Exit if aborted
         }
+        // ----------------------------------------------
 
-        const data = await res.json(); // Wait for full JSON response
+        if (!res.ok) { /* ... (error handling) */ }
+        const data = await res.json();
+        // --- Check for abort again before setting state ---
+        if (controller.signal.aborted) return;
+        // ----------------------------------------------
 
         const aiMessage: Message = { sender: 'ai', text: data.text };
-        setMessages(prev => [...prev, aiMessage]); // Add AI response
+        setMessages(prev => [...prev, aiMessage]);
 
-        if (!activeConversationId && data.conversationId) {
-            const newConvId = data.conversationId;
-            setActiveConversationId(newConvId);
-            setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]);
-        }
+        if (!activeConversationId && data.conversationId) { /* ... (update sidebar) */ }
 
     } catch (err: any) {
-        setError(err.message);
-        setMessages(prev => prev.slice(0, -1)); // Remove optimistic user message on error
+        // --- Handle abort errors specifically ---
+        if (err.name === 'AbortError') {
+          console.log('Fetch aborted');
+          // Error state is set in handleStopGenerating
+        } else {
+          setError(err.message);
+          setMessages(prev => prev.slice(0, -1)); // Remove optimistic user message
+        }
+        // ------------------------------------
     } finally {
         setIsLoading(false);
+        setAbortController(null); // --- Clear controller on completion/error ---
     }
   };
+
+
 
   // --- JSX Rendering ---
   return (
@@ -349,9 +376,18 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 </FormControl>
                 {/* Image upload button removed */}
               </Box>
-              <Button type="submit" variant="contained" endIcon={isLoading ? null : <SendIcon />} disabled={isLoading}>
-                {isLoading ? <CircularProgress size={24} color="inherit" /> : 'Send'}
+              
+                {isLoading ? ( <Button
+                  variant="outlined"
+                  color="warning"
+                  onClick={handleStopGenerating}
+                  startIcon={<StopCircleIcon />}
+                >
+                  Stop Generating
+                </Button> ) : <Button type="submit" variant="contained" endIcon={isLoading ? null : <SendIcon />} disabled={isLoading}><CircularProgress size={24} color="inherit" /> : 'Send'
+                disabled={!prompt.trim()}
               </Button>
+                }
             </Box>
           </Box>
         </Container>
