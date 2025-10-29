@@ -318,10 +318,5 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
          # Decide if you want to proceed or raise an error
          # raise HTTPException(status_code=500, detail="Failed to save AI message")
 
-
-    # 4. Return the full response as JSON
-<<<<<<< Updated upstream
+# 4. Return the full response as JSON
     return {"text": ai_response_text, "conversationId": conversation_id}
-=======
-    return {"text": ai_response_text, "conversationId": conversation_id}
->>>>>>> Stashed changes
