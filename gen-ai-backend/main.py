@@ -320,4 +320,8 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
 
 
     # 4. Return the full response as JSON
+<<<<<<< Updated upstream
     return {"text": ai_response_text, "conversationId": conversation_id}
+=======
+    return {"text": ai_response_text, "conversationId": conversation_id}
+>>>>>>> Stashed changes
