@@ -10,7 +10,8 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
   Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
   Typography, Alert, TextField, FormControl, InputLabel, Select, MenuItem,
-  Button, CircularProgress, Switch, FormControlLabel
+  Button, CircularProgress, Switch, FormControlLabel,
+  IconButton
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import PersonIcon from '@mui/icons-material/Person';
@@ -26,6 +27,7 @@ import materialDark from 'react-syntax-highlighter/dist/cjs/styles/prism/materia
 import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/material-light';
 import StopCircleIcon from '@mui/icons-material/StopCircle'; // Import Stop icon
 import { ContentCopy as ContentCopyIcon, Check as CheckIcon } from '@mui/icons-material';
+
 
 Amplify.configure(awsExports);
 
@@ -73,6 +75,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [darkMode, setDarkMode] = useState(false);
   const chatEndRef = useRef<null | HTMLDivElement>(null);
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null); // For visual feedback
+  const [abortController, setAbortController] = useState<AbortController | null>(null); // --- ADD: State for AbortController ---
+  const [systemPrompt, setSystemPrompt] = useState<string>(''); // --- ADD: State for System Prompt ---
 
   // --- Theme & API Configuration ---
   const lightTheme = createTheme({ palette: { mode: 'light' } });
@@ -266,7 +270,13 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
             headers: { /* ... */ },
-            body: JSON.stringify({ /* ... */ }),
+            body: JSON.stringify({ 
+              prompt: currentPrompt,
+                model,
+                conversationId: activeConversationId,
+                history: historyForApi,
+                systemPrompt: systemPrompt // --- ADD: Send the system prompt ---
+            }),
             signal: controller.signal // --- Pass the signal to fetch ---
         });
 
@@ -312,6 +322,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
       <CssBaseline />
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+
         <ConversationSidebar
           conversations={conversations}
           onSelectConversation={handleSelectConversation}
@@ -326,15 +337,27 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         >
           {/* Header */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-            <Typography variant="h4" component="h1" gutterBottom noWrap>AI Chat</Typography>
+            <Typography variant="h4" component="h1" gutterBottom noWrap>Markitome AI</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <FormControlLabel
                 control={<Switch checked={darkMode} onChange={handleThemeChange} />}
                 label={darkMode ? <Brightness4Icon /> : <Brightness7Icon />}
               />
               <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
+              {/* --- ADD: System Prompt Input --- */}
+
             </Box>
           </Box>
+                    <TextField
+            label="System Prompt (Optional: Define AI role, e.g., 'You are a helpful marketing assistant.')"
+            variant="outlined"
+            fullWidth
+            size="small"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            sx={{ mb: 2, flexShrink: 0 }} // Add margin below
+          />
+          {/* ----------------------------- */}
 
           {/* Chat History Area */}
           <Paper elevation={3} sx={{ flexGrow: 1, overflowY: 'auto', p: 2, mb: 2 }}>
@@ -350,7 +373,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                       <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word' }}>
                         {msg.sender === 'ai' ? (
                           <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>
-                            {msg.text || (isLoading && index === messages.length -1 ? "..." : "")} {/* Show placeholder only for the last AI msg while loading */}
+                            {msg.text || (isLoading && index === messages.length -1 ? "..." : "")}
                           </ReactMarkdown>
                         ) : (
                           <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>

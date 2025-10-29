@@ -24,6 +24,18 @@ import google.generativeai as genai
 class RenameRequest(BaseModel):
     new_title: str
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class PromptRequest(BaseModel):
+    prompt: Optional[str] = None
+    model: str
+    conversationId: Optional[str] = None
+    history: Optional[List[ChatMessage]] = None
+    image: Optional[str] = None
+    systemPrompt: Optional[str] = None # --- ADD: System Prompt field ---
+
 
 ## -------------------
 ## CONFIGURATION
@@ -327,6 +339,24 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
                 user_content.append({"type": "image_url", "image_url": {"url": request.image}})
             messages_for_api.append({"role": "user", "content": user_content})
 
+            # --- ADD: Prepend System Prompt if provided ---
+            if request.systemPrompt and request.systemPrompt.strip():
+                messages_for_api.append({"role": "system", "content": request.systemPrompt.strip()})
+            # ---------------------------------------------
+            # Add history
+            if request.history:
+                for msg in request.history:
+                    role = "assistant" if msg.role == "model" else msg.role
+                    messages_for_api.append({"role": role, "content": msg.content})
+
+            # Add current user message (text and image)
+            user_content = []
+            user_content.append({"type": "text", "text": final_prompt_for_llm})
+            if request.image:
+                user_content.append({"type": "image_url", "image_url": {"url": request.image}})
+            messages_for_api.append({"role": "user", "content": user_content})
+
+            # Call OpenAI API
             response = openai.chat.completions.create(
                 model=model_config["name"],
                 messages=messages_for_api,
