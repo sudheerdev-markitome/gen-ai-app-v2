@@ -34,6 +34,12 @@ jobs:
             git fetch --all
             git reset --hard origin/main # Forcefully overwrite local changes with remote code
 
+            # --- CRITICAL FIX ---
+            # Ensure the ubuntu user owns all files in the directory
+            # This fixes permissions issues that can cause git pull/reset to fail silently
+            echo "--- Correcting file permissions ---"
+            sudo chown -R ubuntu:ubuntu .
+
             # Build the frontend static files
             echo "--- Building frontend ---"
             cd gen-ai-frontend
@@ -59,6 +65,7 @@ jobs:
             # Use --build to rebuild images if Dockerfiles changed
             # Use -d to run in detached (background) mode
             sudo docker-compose build --no-cache backend
+            echo "--- Starting containers ---
             sudo docker-compose up -d
 
             # Restart the Nginx service running directly on the host server
