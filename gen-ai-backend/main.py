@@ -151,7 +151,7 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
                  display_title = first_message.get('text', 'New Chat')[:50]
             conversations.append({'id': conv_id, 'title': display_title})
 
-        return sorted(list(conversations.values()), key=lambda x: x['title'])
+        return sorted(conversations, key=lambda x: x['title'])
     except Exception as e:
         print(f"Error getting conversations for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
