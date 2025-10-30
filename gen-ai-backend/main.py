@@ -8,34 +8,15 @@ import uuid
 from typing import List, Optional
 import json
 
-
-from fastapi import FastAPI, Depends, HTTPException, status, Request # Keep UploadFile/File if keeping upload
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from jose import jwt, jwk
 from jose.exceptions import JOSEError
-import boto3.dynamodb.conditions # Ensure this is imported for Key function
 
 import openai
 import google.generativeai as genai
-
-# --- Add this new Pydantic Model ---
-class RenameRequest(BaseModel):
-    new_title: str
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-class PromptRequest(BaseModel):
-    prompt: Optional[str] = None
-    model: str
-    conversationId: Optional[str] = None
-    history: Optional[List[ChatMessage]] = None
-    image: Optional[str] = None
-    systemPrompt: Optional[str] = None # --- ADD: System Prompt field ---
-
 
 ## -------------------
 ## CONFIGURATION
@@ -60,6 +41,25 @@ SUPPORTED_MODELS = {
     "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash" }
 }
 
+## -------------------
+## PYDANTIC MODELS (Corrected - No Duplicates)
+## -------------------
+class RenameRequest(BaseModel):
+    new_title: str
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class PromptRequest(BaseModel):
+    prompt: Optional[str] = None
+    model: str
+    conversationId: Optional[str] = None
+    history: Optional[List[ChatMessage]] = None
+    image: Optional[str] = None
+    systemPrompt: Optional[str] = None
+
+## -------------------
 ## AUTHENTICATION
 ## -------------------
 COGNITO_JWKS_URL = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
@@ -69,11 +69,10 @@ try:
     response.raise_for_status()
     jwks = response.json()
 except requests.exceptions.RequestException as e:
-    # In a production scenario, consider more robust error handling or fallback
     print(f"CRITICAL: Could not fetch Cognito JWKS - {e}")
-    jwks = {"keys": []} # Allow app to start but auth will fail
+    jwks = {"keys": []}
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # tokenUrl is nominal for Bearer tokens
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
@@ -94,13 +93,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     for key in jwks["keys"]:
         if key.get("kid") == unverified_header.get("kid"):
             rsa_key = {
-                "kty": key.get("kty"),
-                "kid": key.get("kid"),
-                "use": key.get("use"),
-                "n": key.get("n"),
-                "e": key.get("e")
+                "kty": key.get("kty"), "kid": key.get("kid"), "use": key.get("use"),
+                "n": key.get("n"), "e": key.get("e")
             }
-            break # Found the key
+            break
 
     if not rsa_key:
         print(f"Token 'kid' {unverified_header.get('kid')} not found in JWKS.")
@@ -108,37 +104,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
     try:
         payload = jwt.decode(
-            token,
-            rsa_key,
-            algorithms=["RS256"],
-            audience=COGNITO_APP_CLIENT_ID, # Check audience
-            issuer=f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}" # Check issuer
+            token, rsa_key, algorithms=["RS256"],
+            audience=COGNITO_APP_CLIENT_ID,
+            issuer=f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
         )
         return payload
     except jwt.ExpiredSignatureError:
          raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
     except jwt.JWTClaimsError as e:
-         # Log the specific claims error
          print(f"JWT Claims Error: {e}")
          raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid claims: {e}")
     except Exception as e:
-         # Log unexpected validation errors
          print(f"Unexpected token validation error: {e}")
          raise credentials_exception
-
-## -------------------
-## PYDANTIC MODELS
-## -------------------
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-class PromptRequest(BaseModel):
-    prompt: Optional[str] = None # Make prompt optional if image is present
-    model: str
-    conversationId: Optional[str] = None
-    history: Optional[List[ChatMessage]] = None
-    image: Optional[str] = None # Keep for multimodal
 
 ## -------------------
 ## FASTAPI APP
@@ -154,12 +132,9 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
     if not user_id:
         raise HTTPException(status_code=403, detail="User ID not found in token")
     try:
-        # NOTE: Using scan. GSI is recommended for better performance at scale.
         response = chat_history_table.scan(
             FilterExpression=boto3.dynamodb.conditions.Attr('userId').eq(user_id)
         )
-        conversations = {}
-        # Group by conversationId and find the most recent message's text for title
         items_by_conv = {}
         for item in response.get('Items', []):
             conv_id = item['conversationId']
@@ -167,14 +142,16 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
                 items_by_conv[conv_id] = []
             items_by_conv[conv_id].append(item)
 
+        conversations = []
         for conv_id, items in items_by_conv.items():
-            items.sort(key=lambda x: x['timestamp'], reverse=True) # Sort messages by time, newest first
-            title_text = items[0].get('text', 'New Chat')[:50] # Use newest message text as title
-            conversations[conv_id] = {'id': conv_id, 'title': title_text}
+            items.sort(key=lambda x: x['timestamp'])
+            first_message = items[0]
+            display_title = first_message.get('title', None) 
+            if not display_title:
+                 display_title = first_message.get('text', 'New Chat')[:50]
+            conversations.append({'id': conv_id, 'title': display_title})
 
-        # Sort final list alphabetically by title (optional)
         return sorted(list(conversations.values()), key=lambda x: x['title'])
-
     except Exception as e:
         print(f"Error getting conversations for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -189,10 +166,8 @@ async def get_conversation_messages(conversation_id: str, current_user: dict = D
             KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
         )
         items = response.get('Items', [])
-        # Security check: Ensure user owns the conversation before returning messages
         if items and items[0].get('userId') != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
-        # Sort messages chronologically before sending
         items.sort(key=lambda x: x['timestamp'])
         return items
     except Exception as e:
@@ -206,90 +181,60 @@ async def delete_conversation(conversation_id: str, current_user: dict = Depends
         raise HTTPException(status_code=403, detail="User ID not found in token")
 
     try:
-        # First, query to get items and verify ownership (important!)
         response = chat_history_table.query(
             KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
         )
         items = response.get('Items', [])
-
         if not items:
-            # Conversation might already be deleted or never existed
             return {"detail": f"Conversation {conversation_id} not found or already deleted."}
-
-        # Verify ownership based on the first item (all items should have the same userId)
         if items[0].get('userId') != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
-
-        # Delete items in batches
         with chat_history_table.batch_writer() as batch:
             for item in items:
-                batch.delete_item(
-                    Key={
-                        'conversationId': item['conversationId'],
-                        'timestamp': item['timestamp']
-                    }
-                )
-
+                batch.delete_item(Key={'conversationId': item['conversationId'],'timestamp': item['timestamp']})
         print(f"Deleted {len(items)} items for conversation {conversation_id}")
         return {"detail": f"Conversation {conversation_id} deleted successfully."}
-
     except Exception as e:
         print(f"Error deleting conversation {conversation_id} for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error while deleting conversation: {str(e)}")
 
-# --- NEW: RENAME CONVERSATION ENDPOINT ---
 @app.put("/api/conversations/{conversation_id}")
 async def rename_conversation(conversation_id: str, request: RenameRequest, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
-    new_title = request.new_title.strip() # Remove leading/trailing whitespace
+    new_title = request.new_title.strip()
 
     if not new_title:
         raise HTTPException(status_code=400, detail="New title cannot be empty")
-    if len(new_title) > 100: # Optional: Add a length limit
+    if len(new_title) > 100:
         raise HTTPException(status_code=400, detail="Title cannot exceed 100 characters")
 
     try:
-        # 1. Query to find all messages for the conversation, sorted by timestamp
         response = chat_history_table.query(
             KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id),
-            ScanIndexForward=True # Sort oldest to newest
+            ScanIndexForward=True
         )
         items = response.get('Items', [])
-
         if not items:
             raise HTTPException(status_code=404, detail="Conversation not found")
-
-        # 2. Security check: Ensure the user owns this conversation
         if items[0].get('userId') != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
-
-        # 3. Identify the timestamp of the very first message
+        
         first_message_timestamp = items[0]['timestamp']
-
-        # 4. Update only the first message item with the new title attribute
-        # We store the custom title in a dedicated 'title' attribute.
-        # The frontend will need to prioritize this attribute if it exists.
         chat_history_table.update_item(
             Key={
                 'conversationId': conversation_id,
                 'timestamp': first_message_timestamp
             },
             UpdateExpression="SET title = :t",
-            ExpressionAttributeValues={
-                ':t': new_title
-            }
+            ExpressionAttributeValues={ ':t': new_title }
         )
-
         print(f"Renamed conversation {conversation_id} to '{new_title}'")
-        # Return the updated conversation details
         return {"id": conversation_id, "title": new_title}
-
     except HTTPException as http_exc:
-        raise http_exc # Re-raise known HTTP errors
+        raise http_exc
     except Exception as e:
         print(f"Error renaming conversation {conversation_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error while renaming conversation: {str(e)}")
-
 
 # Non-streaming version of the generate endpoint
 @app.post("/api/generate")
@@ -301,13 +246,11 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
     conversation_id = request.conversationId or str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    # Determine prompt text
     display_prompt = request.prompt or ("Image Received" if request.image else "...")
     final_prompt_for_llm = request.prompt or ("Describe this image." if request.image else "")
     if not final_prompt_for_llm:
          raise HTTPException(status_code=400, detail="Prompt cannot be empty unless an image is provided.")
 
-    # 1. Save user prompt/action to DynamoDB
     try:
         chat_history_table.put_item(Item={
             'conversationId': conversation_id, 'timestamp': f"{timestamp}_user",
@@ -315,9 +258,8 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
         })
     except Exception as e:
          print(f"Error saving user message to DynamoDB: {str(e)}")
-         # Decide if you want to proceed or raise an error
+         # Continue anyway, but this is a problem
          # raise HTTPException(status_code=500, detail="Failed to save user message")
-
 
     model_config = SUPPORTED_MODELS.get(request.model)
     if not model_config:
@@ -325,48 +267,39 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
 
     ai_response_text = ""
     try:
-        # 2. Call the AI model (non-streaming)
         if model_config["type"] == "openai":
             messages_for_api = []
-            if request.history:
-                for msg in request.history:
-                    role = "assistant" if msg.role == "model" else msg.role
-                    messages_for_api.append({"role": role, "content": msg.content})
-
-            user_content = []
-            user_content.append({"type": "text", "text": final_prompt_for_llm})
-            if request.image:
-                user_content.append({"type": "image_url", "image_url": {"url": request.image}})
-            messages_for_api.append({"role": "user", "content": user_content})
-
-            # --- ADD: Prepend System Prompt if provided ---
+            
+            # --- CORRECTED LOGIC ---
+            # 1. Add System Prompt (if it exists)
             if request.systemPrompt and request.systemPrompt.strip():
                 messages_for_api.append({"role": "system", "content": request.systemPrompt.strip()})
-            # ---------------------------------------------
-            # Add history
+            
+            # 2. Add History
             if request.history:
                 for msg in request.history:
                     role = "assistant" if msg.role == "model" else msg.role
                     messages_for_api.append({"role": role, "content": msg.content})
 
-            # Add current user message (text and image)
+            # 3. Add current user message (text and image)
             user_content = []
             user_content.append({"type": "text", "text": final_prompt_for_llm})
             if request.image:
                 user_content.append({"type": "image_url", "image_url": {"url": request.image}})
             messages_for_api.append({"role": "user", "content": user_content})
+            # --- END OF CORRECTED LOGIC ---
 
-            # Call OpenAI API
             response = openai.chat.completions.create(
                 model=model_config["name"],
                 messages=messages_for_api,
                 max_tokens=1500
             )
-            ai_response_text = response.choices[0].message.content or "" # Ensure string
+            ai_response_text = response.choices[0].message.content or ""
 
         elif model_config["type"] == "google":
+            # Note: Gemini system prompt requires different handling
+            # This is a simplified call
             model = genai.GenerativeModel(model_config["name"])
-            # Basic Gemini non-streaming call (add multimodal if needed)
             response = model.generate_content(final_prompt_for_llm)
             ai_response_text = response.text
 
@@ -374,7 +307,6 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
         print(f"Error calling AI service ({model_config.get('type')}): {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error from AI service: {str(e)}")
 
-    # 3. Save AI response to DynamoDB
     ai_timestamp = datetime.now(timezone.utc).isoformat()
     try:
         chat_history_table.put_item(Item={
@@ -383,8 +315,6 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
         })
     except Exception as e:
          print(f"Error saving AI message to DynamoDB: {str(e)}")
-         # Decide if you want to proceed or raise an error
-         # raise HTTPException(status_code=500, detail="Failed to save AI message")
-
-# 4. Return the full response as JSON
+         # Don't fail the request, just log the save error
+    
     return {"text": ai_response_text, "conversationId": conversation_id}
