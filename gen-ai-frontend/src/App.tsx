@@ -33,7 +33,7 @@ Amplify.configure(awsExports);
 const drawerWidth = 280; // Define sidebar width
 
 // --- Type Definitions ---
-type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
+type SupportedModel = 'gpt-4' | 'gpt-4o';
 interface Message {
   sender: 'user' | 'ai';
   text: string;
@@ -417,8 +417,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   <Select value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} label="Model">
                     <MenuItem value="gpt-4o">GPT-4o</MenuItem>
                     <MenuItem value="gpt-4">GPT-4</MenuItem>
-                    <MenuItem value="gemini-pro">Gemini Pro</MenuItem>
-                    <MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
+                    {/* <MenuItem value="gemini-pro">Gemini Pro</MenuItem>
+                    <MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem> */}
                   </Select>
                 </FormControl>
                 {/* Image upload button removed */}
