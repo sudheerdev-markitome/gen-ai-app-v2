@@ -1,73 +1,53 @@
-name: Deploy to EC2 (Host Nginx + Docker Backend/DB)
+name: Deploy to EC2
 
 on:
   push:
     branches:
-      - main # Trigger deployment on push to the main branch
+      - main
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest # Use the latest Ubuntu runner provided by GitHub
+    runs-on: ubuntu-latest
     timeout-minutes: 60 # Set an overall timeout for the entire job
 
     steps:
       - name: Connect to server and deploy
-        uses: appleboy/ssh-action@master # Use the SSH action to connect and run commands
-        timeout-minutes: 30 # Set a timeout specifically for this deployment step
+        uses: appleboy/ssh-action@master
+        timeout-minutes: 30 # Set a timeout for this specific step
         with:
-          # Use secrets stored in GitHub repository settings
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
-          # The script to execute on the EC2 server
           script: |
-
-            set -e # <-- ADD THIS LINE
+            # Exit immediately if any command fails
+            set -e
 
             # Navigate to the project directory
             echo "--- Navigating to project directory ---"
             cd ~/gen-ai-app
 
-            # Pull the latest code from the main branch
-            echo "--- Pulling latest code ---"
-            git fetch --all
-            git reset --hard origin/main # Forcefully overwrite local changes with remote code
-
-            # --- CRITICAL FIX ---
-            # Ensure the ubuntu user owns all files in the directory
-            # This fixes permissions issues that can cause git pull/reset to fail silently
+            # Ensure the ubuntu user owns all files
             echo "--- Correcting file permissions ---"
             sudo chown -R ubuntu:ubuntu .
 
-            # Build the frontend static files
-            echo "--- Building frontend ---"
-            cd gen-ai-frontend
-            # Load Node Version Manager (NVM) into the current shell session
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            # Install dependencies and build the production version
-            npm install
-            npm run build
-            cd .. # Return to the project root directory
+            # Pull the latest code
+            echo "--- Pulling latest code ---"
+            git fetch --all
+            git reset --hard origin/main
 
-            # Deploy frontend files to the Nginx web root
-            echo "--- Deploying frontend files ---"
-            sudo rm -rf /var/www/html/* # Remove old static files
-            sudo cp -R gen-ai-frontend/dist/* /var/www/html/ # Copy new build files
-
-            # Clean up unused Docker resources (images, containers, build cache)
+            # Clean up old Docker resources
             echo "--- Cleaning up Docker resources ---"
-            sudo docker system prune -af || true # Ignore errors if nothing to prune
+            sudo docker system prune -af || true
 
-            # Build and run backend/DB containers using Docker Compose
-            echo "--- Building and deploying backend/DB containers ---"
-            # Use --build to rebuild images if Dockerfiles changed
-            # Use -d to run in detached (background) mode
+            # Force a no-cache build for the backend
+            echo "--- Building backend container (no cache) ---"
             sudo docker-compose build --no-cache backend
-            echo "--- Starting containers ---
+
+            # Start all containers
+            echo "--- Starting containers ---"
             sudo docker-compose up -d
 
-            # Restart the Nginx service running directly on the host server
+            # Restart the host Nginx
             echo "--- Restarting host Nginx ---"
             sudo systemctl restart nginx
