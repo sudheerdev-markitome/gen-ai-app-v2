@@ -42,7 +42,7 @@ jobs:
 
             # Force a no-cache build for the backend
             echo "--- Building backend container (no cache) ---"
-            sudo docker-compose build --no-cache backend
+            sudo docker-compose build --no-cache
 
             # Start all containers
             echo "--- Starting containers ---"
