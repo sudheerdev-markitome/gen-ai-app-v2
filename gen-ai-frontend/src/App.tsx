@@ -439,7 +439,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   startIcon={<StopCircleIcon />}
                 >
                   Stop Generating
-                </DButton>
+                </Button>
               ) : (
                 <Button
                   type="submit"
