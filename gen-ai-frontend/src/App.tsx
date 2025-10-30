@@ -6,6 +6,9 @@ import { withAuthenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import awsExports from './aws-exports';
 
+// --- Import Toast ---
+import { Toaster, toast } from 'react-hot-toast';
+
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
   Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
@@ -33,7 +36,7 @@ Amplify.configure(awsExports);
 const drawerWidth = 280; // Define sidebar width
 
 // --- Type Definitions ---
-type SupportedModel = 'gpt-4' | 'gpt-4o';
+type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
 interface Message {
   sender: 'user' | 'ai';
   text: string;
@@ -73,7 +76,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [error, setError] = useState<string>('');
   const [darkMode, setDarkMode] = useState(false);
   const chatEndRef = useRef<null | HTMLDivElement>(null);
-  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string>('');
 
@@ -106,15 +108,15 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         }
         const data = await res.json();
         setConversations(data.map((item: any) => ({
-            id: item.conversationId || item.id,
-            title: item.title || item.text?.substring(0, 50) || 'New Chat'
+            id: item.id, // Backend should return 'id'
+            title: item.title // Backend should return 'title'
         })));
       } catch (err: any) {
         setError(`Failed to load conversations: ${err.message}`);
       }
     };
     loadConversations();
-  }, []);
+  }, []); // Run once on mount
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -151,7 +153,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   const handleDeleteConversation = async (id: string) => {
-    setError('');
+    setError(''); // Clear main error alert
     try {
       const token = await getAuthToken();
       const response = await fetch(`${CONVERSATIONS_URL}/${id}`, {
@@ -166,8 +168,10 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       if (activeConversationId === id) {
         handleNewConversation();
       }
+      // Re-throw success to be caught by sidebar toast
+      throw new Error("Conversation deleted successfully.");
     } catch (error) {
-      setError(`Deletion failed: ${(error as Error).message}`);
+      // Re-throw error so sidebar can show status toast
       throw error;
     }
   };
@@ -189,26 +193,26 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         throw new Error(errorData.detail || 'Failed to rename conversation');
       }
       const updatedConversation = await response.json();
+
       setConversations(prev =>
         prev.map(conv =>
           conv.id === id ? { ...conv, title: updatedConversation.title } : conv
         )
       );
-      return updatedConversation;
+      return updatedConversation; // Return data for sidebar
     } catch (error) {
-      setError(`Rename failed: ${(error as Error).message}`);
+      // Re-throw error so sidebar can show status toast
       throw error;
     }
   };
 
-  const handleCopyText = async (textToCopy: string, index: number) => {
+  const handleCopyText = async (textToCopy: string) => {
     try {
       await navigator.clipboard.writeText(textToCopy);
-      setCopiedMessageIndex(index);
-      setTimeout(() => setCopiedMessageIndex(null), 1500);
+      toast.success('Copied to clipboard!'); // Show success toast
     } catch (err) {
       console.error("Failed to copy text: ", err);
-      setError("Failed to copy text to clipboard.");
+      toast.error('Failed to copy text.'); // Show error toast
     }
   };
 
@@ -224,11 +228,10 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         }
         return prev;
       });
-      setError("Generation stopped by user.");
+      toast.error("Generation stopped by user."); // Use toast for feedback
     }
   };
 
-  // --- This is the ONE correct handleSubmit function ---
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!prompt.trim() || isLoading) return;
@@ -242,8 +245,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     setIsLoading(true);
     setError('');
 
-    const controller = new AbortController(); // Create new controller
-    setAbortController(controller);         // Save it to state
+    const controller = new AbortController();
+    setAbortController(controller);
 
     try {
         const token = await getAuthToken();
@@ -263,15 +266,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 model,
                 conversationId: activeConversationId,
                 history: historyForApi,
-                systemPrompt: systemPrompt // Send system prompt
+                systemPrompt: systemPrompt
             }),
-            signal: controller.signal // Pass signal to fetch
+            signal: controller.signal
         });
 
-        if (controller.signal.aborted) {
-          console.log("Fetch aborted by user.");
-          return;
-        }
+        if (controller.signal.aborted) return;
 
         if (!res.ok) {
             let errorDetail = `Server error: ${res.status}`;
@@ -295,20 +295,31 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err: any) {
          if (err.name === 'AbortError') {
           console.log('Fetch aborted');
-          // Error state is set in handleStopGenerating
         } else {
           setError(err.message);
           setMessages(prev => prev.slice(0, -1));
         }
     } finally {
         setIsLoading(false);
-        setAbortController(null); // Clear controller on completion/error
+        setAbortController(null);
     }
   };
 
   // --- JSX Rendering ---
   return (
     <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
+      {/* --- ADD: The Toaster Component --- */}
+      <Toaster
+        position="top-center"
+        reverseOrder={false}
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: darkMode ? '#333' : '#fff',
+            color: darkMode ? '#fff' : '#333',
+          },
+        }}
+      />
       <CssBaseline />
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
 
@@ -336,7 +347,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             </Box>
           </Box>
           
-          {/* --- System Prompt Input (Corrected Position) --- */}
+          {/* System Prompt Input */}
           <TextField
             label="System Prompt (Optional: Define AI role, e.g., 'You are a helpful marketing assistant.')"
             variant="outlined"
@@ -346,7 +357,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             onChange={(e) => setSystemPrompt(e.target.value)}
             sx={{ mb: 2, flexShrink: 0 }}
           />
-          {/* ------------------------------------------- */}
 
           {/* Chat History Area */}
           <Paper elevation={3} sx={{ flexGrow: 1, overflowY: 'auto', p: 2, mb: 2 }}>
@@ -356,7 +366,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   <Avatar sx={{ bgcolor: msg.sender === 'user' ? 'primary.main' : 'secondary.main', mr: 2 }}>
                     {msg.sender === 'user' ? <PersonIcon /> : <SmartToyIcon />}
                   </Avatar>
-                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}> {/* Wrap text and button */}
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                     <ListItemText
                       primary={msg.sender === 'user' ? `You (${user?.attributes?.email ?? 'User'})` : 'AI'}
                       secondary={
@@ -372,18 +382,15 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                       }
                       sx={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
                     />
-                    {/* --- Copy Button --- */}
+                    {/* --- Copy Button (using toast, no CheckIcon) --- */}
                     {msg.sender === 'ai' && msg.text && !isLoading && (
                        <Box sx={{ alignSelf: 'flex-end', mt: 0.5 }}>
                          <IconButton
                            size="small"
-                           onClick={() => handleCopyText(msg.text, index)}
+                           onClick={() => handleCopyText(msg.text)}
                            aria-label="copy response"
                          >
-                           {copiedMessageIndex === index ?
-                             <CheckIcon fontSize="inherit" color="success" /> :
-                             <ContentCopyIcon fontSize="inherit" />
-                           }
+                           <ContentCopyIcon fontSize="inherit" />
                          </IconButton>
                        </Box>
                     )}
@@ -394,7 +401,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             </List>
           </Paper>
 
-          {/* Error Display Area */}
+          {/* Error Display Area (for major errors) */}
           {error && <Alert severity="error" sx={{ mb: 2, flexShrink: 0 }}>{error}</Alert>}
 
           {/* Input Form Area */}
@@ -417,14 +424,13 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   <Select value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} label="Model">
                     <MenuItem value="gpt-4o">GPT-4o</MenuItem>
                     <MenuItem value="gpt-4">GPT-4</MenuItem>
-                    {/* <MenuItem value="gemini-pro">Gemini Pro</MenuItem>
-                    <MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem> */}
+                    <MenuItem value="gemini-pro">Gemini Pro</MenuItem>
+                    <MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
                   </Select>
                 </FormControl>
-                {/* Image upload button removed */}
               </Box>
 
-              {/* --- CORRECTED Conditional Button Logic --- */}
+              {/* Conditional Send/Stop Button */}
               {isLoading ? (
                 <Button
                   variant="outlined"
@@ -433,7 +439,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   startIcon={<StopCircleIcon />}
                 >
                   Stop Generating
-                </Button>
+                </DButton>
               ) : (
                 <Button
                   type="submit"

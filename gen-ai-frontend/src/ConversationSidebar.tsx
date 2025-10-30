@@ -1,5 +1,5 @@
 // src/ConversationSidebar.tsx
-import React, { useState } from 'react'; // Removed useRef
+import React, { useState } from 'react';
 import {
   Drawer,
   List,
@@ -9,21 +9,21 @@ import {
   Button,
   Box,
   Typography,
-  IconButton, // Keep for delete button
-  Dialog, // Keep for confirmation dialog
+  CircularProgress,
+  IconButton,
+  Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
-  CircularProgress, // Keep for delete loading
-  Alert,
-  TextField
+  TextField // Added for renaming
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete'; // Keep delete icon
-import EditIcon from '@mui/icons-material/Edit'; // Add Edit Icon
-import CheckIcon from '@mui/icons-material/Check'; // Add Check Icon for saving
-import CloseIcon from '@mui/icons-material/Close'; // Add Close Icon for canceling
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit'; // Added for renaming
+import CheckIcon from '@mui/icons-material/Check'; // Added for saving rename
+import CloseIcon from '@mui/icons-material/Close'; // Added for canceling rename
+import { toast } from 'react-hot-toast'; // Import toast for notifications
 
 // Interface for a single conversation item
 interface Conversation {
@@ -31,13 +31,13 @@ interface Conversation {
   title: string;
 }
 
-// Props definition for the component, including the delete handler
+// Props definition for the component
 interface ConversationSidebarProps {
   conversations: Conversation[];
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
-  onDeleteConversation: (id: string) => Promise<void>; // Handler for deleting
-  onRenameConversation: (id: string, newTitle: string) => Promise<Conversation>; // Add rename handler prop
+  onDeleteConversation: (id: string) => Promise<void>;
+  onRenameConversation: (id: string, newTitle: string) => Promise<Conversation>; // Handler for renaming
   activeConversationId: string | null;
 }
 
@@ -47,30 +47,25 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   conversations,
   onSelectConversation,
   onNewConversation,
-  onDeleteConversation, // Destructure the delete handler
-  onRenameConversation,
+  onDeleteConversation,
+  onRenameConversation, // Destructure the rename handler
   activeConversationId,
-  
 }) => {
+  // --- State for Delete Dialog ---
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // --- State for Rename ---
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
-  // State for controlling the delete confirmation dialog
-  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  // State to store the ID of the conversation marked for deletion
-  const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
-  // State for delete loading indicator
-  const [isDeleting, setIsDeleting] = useState(false);
-  // State for showing status messages (can be used for delete success/error)
-  const [status, setStatus] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
-
 
   // --- Delete Handlers ---
   const handleDeleteClick = (event: React.MouseEvent, conversationId: string) => {
     event.stopPropagation(); // Prevent ListItemButton click when clicking the icon
     setConversationToDelete(conversationId);
     setOpenDeleteDialog(true);
-    setStatus(null); // Clear previous statuses
   };
 
   const handleCloseDeleteDialog = () => {
@@ -81,26 +76,23 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   const handleConfirmDelete = async () => {
     if (!conversationToDelete) return;
     setIsDeleting(true);
-    setStatus(null); // Clear previous statuses
 
     try {
       await onDeleteConversation(conversationToDelete); // Call parent handler
-      setStatus({ message: 'Conversation deleted successfully.', severity: 'success'});
-      // No need to manually filter here, App.tsx handles state update
+      toast.success('Conversation deleted!'); // Use toast for success
     } catch (error: any) {
-      setStatus({ message: `Failed to delete conversation: ${error.message}`, severity: 'error' });
+      toast.error(`Failed to delete: ${error.message}`); // Use toast for error
     } finally {
       setIsDeleting(false);
-      handleCloseDeleteDialog(); // Close the dialog regardless of outcome
+      handleCloseDeleteDialog(); // Close the dialog
     }
   };
 
-  // --- NEW: Rename Handling ---
+  // --- Rename Handlers ---
   const handleEditClick = (event: React.MouseEvent, conversation: Conversation) => {
-    event.stopPropagation();
+    event.stopPropagation(); // Prevent selection
     setEditingConversationId(conversation.id);
     setRenameValue(conversation.title); // Pre-fill input with current title
-    setStatus(null);
   };
 
   const handleRenameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -118,65 +110,56 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
     if (!editingConversationId || !renameValue.trim() || isRenaming) return;
 
     setIsRenaming(true);
-    setStatus(null);
 
     try {
       await onRenameConversation(editingConversationId, renameValue.trim());
-      setStatus({ message: 'Conversation renamed.', severity: 'success' });
+      toast.success('Conversation renamed!'); // Use toast
       handleCancelRename(); // Exit editing mode on success
     } catch (error: any) {
-      setStatus({ message: `Rename failed: ${error.message}`, severity: 'error' });
-      // Keep editing mode active on failure so user can retry/edit
+      toast.error(`Rename failed: ${error.message}`); // Use toast
     } finally {
       setIsRenaming(false);
     }
   };
-  // -------------------------
 
-return (
+
+  return (
     <Drawer
-      variant="permanent" // Keeps the sidebar always visible
-      anchor="left"       // Positions the sidebar on the left
+      variant="permanent"
+      anchor="left"
       sx={{
-        width: drawerWidth, // Set the width
-        flexShrink: 0,      // Prevent the sidebar from shrinking
-        '& .MuiDrawer-paper': { // Style the paper component inside the Drawer
+        width: drawerWidth,
+        flexShrink: 0,
+        '& .MuiDrawer-paper': {
           width: drawerWidth,
-          boxSizing: 'border-box', // Include padding and border in the element's total width and height
-          bgcolor: 'background.paper', // Use theme's background color
+          boxSizing: 'border-box',
+          bgcolor: 'background.paper',
         },
       }}
     >
-      {/* --- Top Section: New Chat & Status Messages --- */}
+      {/* --- Top Section: New Chat Button --- */}
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Button
           variant="outlined"
           fullWidth
           startIcon={<AddIcon />}
           onClick={onNewConversation}
-          // Removed sx={{ mb: 2 }} as upload button is gone
         >
           New Chat
         </Button>
-         {/* Display status messages (e.g., for delete success/error) */}
-         {status && (
-          <Alert severity={status.severity} sx={{ mt: 1, fontSize: '0.8rem' }}>
-            {status.message}
-          </Alert>
-        )}
+         {/* Note: The Alert component was removed. Feedback is now handled by toast. */}
       </Box>
 
       {/* --- Conversation History List --- */}
-      <List sx={{ overflowY: 'auto', flexGrow: 1 }}> {/* Allow list to scroll and fill available space */}
+      <List sx={{ overflowY: 'auto', flexGrow: 1 }}>
         <ListItem>
           <Typography variant="overline" sx={{ color: 'text.secondary' }}>History</Typography>
         </ListItem>
         {conversations.map((conv) => (
           <ListItem
-             key={conv.id} // Unique key for each list item
-             disablePadding // Remove default padding
-             secondaryAction={ // Content aligned to the right side of the list item
-               // Show different icons based on whether this item is being edited
+             key={conv.id}
+             disablePadding
+             secondaryAction={
                editingConversationId === conv.id ? (
                  // Save/Cancel icons when editing
                  <>
@@ -199,38 +182,34 @@ return (
                  </>
                )
              }
-             // Adjust right padding to accommodate the icons
-             sx={{ pr: '70px' }}
+             sx={{ pr: '70px' }} // Keep padding for icons
            >
             {/* Show TextField for editing or ListItemButton for display */}
             {editingConversationId === conv.id ? (
               <TextField
-                value={renameValue}           // Controlled input value
-                onChange={handleRenameChange} // Update state on change
-                variant="standard"          // Minimalist text field style
+                value={renameValue}
+                onChange={handleRenameChange}
+                variant="standard"
                 size="small"
-                fullWidth                   // Take up available width
-                autoFocus                   // Focus when it appears
-                disabled={isRenaming}       // Disable while saving
-                // Keyboard shortcuts for save (Enter) and cancel (Escape)
+                fullWidth
+                autoFocus
+                disabled={isRenaming}
                 onKeyDown={(e) => {
                    if (e.key === 'Enter') handleSaveRename(e as any);
                    if (e.key === 'Escape') handleCancelRename();
                  }}
-                 // Style to roughly match the ListItemText appearance
                 sx={{ ml: 1, mr: 1, my: '6px' }}
               />
             ) : (
-              // Standard display button for the conversation
               <ListItemButton
-                selected={conv.id === activeConversationId} // Highlight if active
-                onClick={() => onSelectConversation(conv.id)} // Select conversation on click
+                selected={conv.id === activeConversationId}
+                onClick={() => onSelectConversation(conv.id)}
               >
                 <ListItemText
-                  primary={conv.title} // Display the conversation title
+                  primary={conv.title}
                   primaryTypographyProps={{
-                    noWrap: true,       // Prevent title from wrapping to multiple lines
-                    sx: { fontSize: '0.9rem' } // Slightly smaller font size
+                    noWrap: true,
+                    sx: { fontSize: '0.9rem' }
                    }}
                 />
               </ListItemButton>
@@ -241,8 +220,8 @@ return (
 
       {/* --- Delete Confirmation Dialog --- */}
       <Dialog
-        open={openDeleteDialog}          // Control visibility with state
-        onClose={handleCloseDeleteDialog} // Handler to close the dialog
+        open={openDeleteDialog}
+        onClose={handleCloseDeleteDialog}
         aria-labelledby="delete-confirmation-dialog-title"
         aria-describedby="delete-confirmation-dialog-description"
       >
@@ -255,13 +234,10 @@ return (
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          {/* Cancel Button */}
           <Button onClick={handleCloseDeleteDialog} disabled={isDeleting}>
             Cancel
           </Button>
-          {/* Delete Button */}
           <Button onClick={handleConfirmDelete} color="error" autoFocus disabled={isDeleting}>
-            {/* Show loading spinner while deleting */}
             {isDeleting ? <CircularProgress size={20} /> : 'Delete'}
           </Button>
         </DialogActions>
