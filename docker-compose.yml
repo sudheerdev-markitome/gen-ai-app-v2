@@ -16,7 +16,7 @@ services:
         awslogs-region: ap-south-1 # <-- Your AWS region
         awslogs-group: /ecs/gen-ai-app-backend # <-- Log group name
         awslogs-create-group: "true" # Creates group if it doesn't exist
-        awslogs-stream-prefix: backend # Prefix for log streams within the group
+        
 
   chromadb:
     image: chromadb/chroma
@@ -32,4 +32,4 @@ services:
         awslogs-region: ap-south-1 # <-- Your AWS region
         awslogs-group: /ecs/gen-ai-app-chromadb # <-- Log group name
         awslogs-create-group: "true"
-        awslogs-stream-prefix: chromadb
+        
