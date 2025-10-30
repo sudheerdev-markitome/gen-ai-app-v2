@@ -18,6 +18,8 @@ import PersonIcon from '@mui/icons-material/Person';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
+import { ContentCopy as ContentCopyIcon, Check as CheckIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
 
@@ -25,9 +27,6 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import materialDark from 'react-syntax-highlighter/dist/cjs/styles/prism/material-dark';
 import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/material-light';
-import StopCircleIcon from '@mui/icons-material/StopCircle'; // Import Stop icon
-import { ContentCopy as ContentCopyIcon, Check as CheckIcon } from '@mui/icons-material';
-
 
 Amplify.configure(awsExports);
 
@@ -74,9 +73,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [error, setError] = useState<string>('');
   const [darkMode, setDarkMode] = useState(false);
   const chatEndRef = useRef<null | HTMLDivElement>(null);
-  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null); // For visual feedback
-  const [abortController, setAbortController] = useState<AbortController | null>(null); // --- ADD: State for AbortController ---
-  const [systemPrompt, setSystemPrompt] = useState<string>(''); // --- ADD: State for System Prompt ---
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState<string>('');
 
   // --- Theme & API Configuration ---
   const lightTheme = createTheme({ palette: { mode: 'light' } });
@@ -95,7 +94,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   // --- Effects ---
-  // Load conversations on initial mount, prioritize custom title
   useEffect(() => {
     const loadConversations = async () => {
       setError('');
@@ -107,10 +105,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             throw new Error(errorData.detail || "Failed to fetch conversations from server");
         }
         const data = await res.json();
-        // Map data prioritizing explicit 'title' attribute if it exists from rename
         setConversations(data.map((item: any) => ({
-            id: item.conversationId || item.id, // Handle potential key differences
-            // Use item.title if present (from rename), otherwise fallback to item.text
+            id: item.conversationId || item.id,
             title: item.title || item.text?.substring(0, 50) || 'New Chat'
         })));
       } catch (err: any) {
@@ -118,9 +114,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       }
     };
     loadConversations();
-  }, []); // Run once on mount
+  }, []);
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -194,102 +189,89 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         throw new Error(errorData.detail || 'Failed to rename conversation');
       }
       const updatedConversation = await response.json();
-
-      // Update the conversation list in the local state
       setConversations(prev =>
         prev.map(conv =>
           conv.id === id ? { ...conv, title: updatedConversation.title } : conv
         )
       );
       return updatedConversation;
-
     } catch (error) {
       setError(`Rename failed: ${(error as Error).message}`);
       throw error;
     }
   };
 
-  // --- NEW: Copy Handler ---
   const handleCopyText = async (textToCopy: string, index: number) => {
     try {
       await navigator.clipboard.writeText(textToCopy);
-      setCopiedMessageIndex(index); // Indicate success
-      // Optionally, reset the icon after a short delay
+      setCopiedMessageIndex(index);
       setTimeout(() => setCopiedMessageIndex(null), 1500);
     } catch (err) {
       console.error("Failed to copy text: ", err);
-      // Optionally show an error toast/message here
-      setError("Failed to copy text to clipboard."); // Use existing error state or a toast
+      setError("Failed to copy text to clipboard.");
     }
   };
-  // -----------------------
 
-  // --- NEW: Stop Generating Handler ---
   const handleStopGenerating = () => {
     if (abortController) {
-      abortController.abort(); // Send cancel signal to fetch
-      setAbortController(null); // Clear the controller
-      setIsLoading(false); // Manually set loading to false
-      // Optionally remove the partial AI message placeholder
+      abortController.abort();
+      setAbortController(null);
+      setIsLoading(false);
       setMessages(prev => {
         const lastMessage = prev[prev.length - 1];
-        // Only remove if it's an empty AI placeholder
         if (lastMessage && lastMessage.sender === 'ai' && lastMessage.text === '') {
           return prev.slice(0, -1);
         }
         return prev;
       });
-      setError("Generation stopped by user."); // Optional: Set an error/status message
+      setError("Generation stopped by user.");
     }
   };
 
-
-  // App.tsx
-
-const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  // --- This is the ONE correct handleSubmit function ---
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Check for prompt and loading status
     if (!prompt.trim() || isLoading) return;
 
     const userMessage: Message = { sender: 'user', text: prompt };
     const currentPrompt = prompt;
-    const currentHistory = [...messages]; // Get history *before* adding new message
+    const currentHistory = [...messages];
 
-    setMessages(prev => [...prev, userMessage]); // Add user message optimistically
+    setMessages(prev => [...prev, userMessage]);
     setPrompt('');
     setIsLoading(true);
     setError('');
 
-    try {
-        // --- 'token' IS DECLARED HERE ---
-        const token = await getAuthToken();
+    const controller = new AbortController(); // Create new controller
+    setAbortController(controller);         // Save it to state
 
-        // --- 'msg' IS USED HERE ---
+    try {
+        const token = await getAuthToken();
         const historyForApi = currentHistory.map(msg => ({
             role: msg.sender === 'user' ? 'user' : 'model',
             content: msg.text
         }));
 
-        // Standard fetch, expects a single JSON response
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                // --- 'token' IS USED HERE ---
                 'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
                 prompt: currentPrompt,
                 model,
                 conversationId: activeConversationId,
-                // --- 'historyForApi' (which uses 'msg') IS USED HERE ---
                 history: historyForApi,
+                systemPrompt: systemPrompt // Send system prompt
             }),
-            signal: abortController ? abortController.signal : undefined // Handle abort controller
+            signal: controller.signal // Pass signal to fetch
         });
 
-        // Clear controller if fetch completes
-        if (abortController) setAbortController(null);
+        if (controller.signal.aborted) {
+          console.log("Fetch aborted by user.");
+          return;
+        }
 
         if (!res.ok) {
             let errorDetail = `Server error: ${res.status}`;
@@ -297,10 +279,12 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
             throw new Error(errorDetail);
         }
 
-        const data = await res.json(); // Wait for full JSON response
+        const data = await res.json();
+        
+        if (controller.signal.aborted) return;
+        
         const aiMessage: Message = { sender: 'ai', text: data.text };
-
-        setMessages(prev => [...prev, aiMessage]); // Add AI response
+        setMessages(prev => [...prev, aiMessage]);
 
         if (!activeConversationId && data.conversationId) {
             const newConvId = data.conversationId;
@@ -311,17 +295,16 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     } catch (err: any) {
          if (err.name === 'AbortError') {
           console.log('Fetch aborted');
+          // Error state is set in handleStopGenerating
         } else {
           setError(err.message);
-          setMessages(prev => prev.slice(0, -1)); // Remove optimistic user message on error
+          setMessages(prev => prev.slice(0, -1));
         }
     } finally {
         setIsLoading(false);
-        if (abortController) setAbortController(null); // Ensure controller is cleared
+        setAbortController(null); // Clear controller on completion/error
     }
-};
-
-
+  };
 
   // --- JSX Rendering ---
   return (
@@ -334,7 +317,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
           onSelectConversation={handleSelectConversation}
           onNewConversation={handleNewConversation}
           onDeleteConversation={handleDeleteConversation}
-          onRenameConversation={handleRenameConversation} // Pass rename handler
+          onRenameConversation={handleRenameConversation}
           activeConversationId={activeConversationId}
         />
         <Container
@@ -350,20 +333,20 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                 label={darkMode ? <Brightness4Icon /> : <Brightness7Icon />}
               />
               <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
-              {/* --- ADD: System Prompt Input --- */}
-
             </Box>
           </Box>
-                    <TextField
+          
+          {/* --- System Prompt Input (Corrected Position) --- */}
+          <TextField
             label="System Prompt (Optional: Define AI role, e.g., 'You are a helpful marketing assistant.')"
             variant="outlined"
             fullWidth
             size="small"
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            sx={{ mb: 2, flexShrink: 0 }} // Add margin below
+            sx={{ mb: 2, flexShrink: 0 }}
           />
-          {/* ----------------------------- */}
+          {/* ------------------------------------------- */}
 
           {/* Chat History Area */}
           <Paper elevation={3} sx={{ flexGrow: 1, overflowY: 'auto', p: 2, mb: 2 }}>
@@ -373,22 +356,23 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                   <Avatar sx={{ bgcolor: msg.sender === 'user' ? 'primary.main' : 'secondary.main', mr: 2 }}>
                     {msg.sender === 'user' ? <PersonIcon /> : <SmartToyIcon />}
                   </Avatar>
-                  <ListItemText
-                    primary={msg.sender === 'user' ? `You (${user?.attributes?.email ?? 'User'})` : 'AI'}
-                    secondary={
-                      <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word' }}>
-                        {msg.sender === 'ai' ? (
-                          <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>
-                            {msg.text || (isLoading && index === messages.length -1 ? "..." : "")}
-                          </ReactMarkdown>
-                        ) : (
-                          <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>
-                        )}
-                      </Typography>
-                    }
-                  
-                  />
-                  {/* --- ADD COPY BUTTON FOR AI MESSAGES --- */}
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}> {/* Wrap text and button */}
+                    <ListItemText
+                      primary={msg.sender === 'user' ? `You (${user?.attributes?.email ?? 'User'})` : 'AI'}
+                      secondary={
+                        <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                          {msg.sender === 'ai' ? (
+                            <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>
+                              {msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}
+                            </ReactMarkdown>
+                          ) : (
+                            <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>
+                          )}
+                        </Typography>
+                      }
+                      sx={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                    />
+                    {/* --- Copy Button --- */}
                     {msg.sender === 'ai' && msg.text && !isLoading && (
                        <Box sx={{ alignSelf: 'flex-end', mt: 0.5 }}>
                          <IconButton
@@ -396,7 +380,6 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                            onClick={() => handleCopyText(msg.text, index)}
                            aria-label="copy response"
                          >
-                           {/* Show checkmark briefly after copying */}
                            {copiedMessageIndex === index ?
                              <CheckIcon fontSize="inherit" color="success" /> :
                              <ContentCopyIcon fontSize="inherit" />
@@ -404,7 +387,7 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                          </IconButton>
                        </Box>
                     )}
-                    {/* ------------------------------------- */}
+                  </Box>
                 </ListItem>
               ))}
               <div ref={chatEndRef} />
@@ -440,18 +423,27 @@ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                 </FormControl>
                 {/* Image upload button removed */}
               </Box>
-              
-                {isLoading ? ( <Button
+
+              {/* --- CORRECTED Conditional Button Logic --- */}
+              {isLoading ? (
+                <Button
                   variant="outlined"
                   color="warning"
                   onClick={handleStopGenerating}
                   startIcon={<StopCircleIcon />}
                 >
                   Stop Generating
-                </Button> ) : <Button type="submit" variant="contained" endIcon={isLoading ? null : <SendIcon />} disabled={isLoading}><CircularProgress size={24} color="inherit" /> : 'Send'
-                disabled={!prompt.trim()}
-              </Button>
-                }
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  variant="contained"
+                  endIcon={<SendIcon />}
+                  disabled={!prompt.trim()}
+                >
+                  Send
+                </Button>
+              )}
             </Box>
           </Box>
         </Container>
