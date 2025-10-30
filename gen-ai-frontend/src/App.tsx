@@ -244,76 +244,82 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
 
-  // --- UPDATED: handleSubmit ---
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  // App.tsx
+
+const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // Check for prompt and loading status
     if (!prompt.trim() || isLoading) return;
 
     const userMessage: Message = { sender: 'user', text: prompt };
     const currentPrompt = prompt;
-    const currentHistory = [...messages];
+    const currentHistory = [...messages]; // Get history *before* adding new message
 
-    setMessages(prev => [...prev, userMessage]); // Add user message (No AI placeholder needed here for non-streaming)
+    setMessages(prev => [...prev, userMessage]); // Add user message optimistically
     setPrompt('');
     setIsLoading(true);
     setError('');
 
-    // --- Create and store AbortController ---
-    const controller = new AbortController();
-    setAbortController(controller);
-    // ------------------------------------
-
     try {
+        // --- 'token' IS DECLARED HERE ---
         const token = await getAuthToken();
-        const historyForApi = currentHistory.map(msg => ({ /* ... */ }));
 
+        // --- 'msg' IS USED HERE ---
+        const historyForApi = currentHistory.map(msg => ({
+            role: msg.sender === 'user' ? 'user' : 'model',
+            content: msg.text
+        }));
+
+        // Standard fetch, expects a single JSON response
         const res = await fetch(GENERATE_URL, {
             method: 'POST',
-            headers: { /* ... */ },
-            body: JSON.stringify({ 
-              prompt: currentPrompt,
+            headers: {
+                'Content-Type': 'application/json',
+                // --- 'token' IS USED HERE ---
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                prompt: currentPrompt,
                 model,
                 conversationId: activeConversationId,
+                // --- 'historyForApi' (which uses 'msg') IS USED HERE ---
                 history: historyForApi,
-                systemPrompt: systemPrompt // --- ADD: Send the system prompt ---
             }),
-            signal: controller.signal // --- Pass the signal to fetch ---
+            signal: abortController ? abortController.signal : undefined // Handle abort controller
         });
 
-        // --- Check for abort before processing response ---
-        if (controller.signal.aborted) {
-          console.log("Fetch aborted by user.");
-          // No need to set error here, handleStopGenerating does it.
-          return; // Exit if aborted
+        // Clear controller if fetch completes
+        if (abortController) setAbortController(null);
+
+        if (!res.ok) {
+            let errorDetail = `Server error: ${res.status}`;
+            try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
+            throw new Error(errorDetail);
         }
-        // ----------------------------------------------
 
-        if (!res.ok) { /* ... (error handling) */ }
-        const data = await res.json();
-        // --- Check for abort again before setting state ---
-        if (controller.signal.aborted) return;
-        // ----------------------------------------------
-
+        const data = await res.json(); // Wait for full JSON response
         const aiMessage: Message = { sender: 'ai', text: data.text };
-        setMessages(prev => [...prev, aiMessage]);
 
-        if (!activeConversationId && data.conversationId) { /* ... (update sidebar) */ }
+        setMessages(prev => [...prev, aiMessage]); // Add AI response
+
+        if (!activeConversationId && data.conversationId) {
+            const newConvId = data.conversationId;
+            setActiveConversationId(newConvId);
+            setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]);
+        }
 
     } catch (err: any) {
-        // --- Handle abort errors specifically ---
-        if (err.name === 'AbortError') {
+         if (err.name === 'AbortError') {
           console.log('Fetch aborted');
-          // Error state is set in handleStopGenerating
         } else {
           setError(err.message);
-          setMessages(prev => prev.slice(0, -1)); // Remove optimistic user message
+          setMessages(prev => prev.slice(0, -1)); // Remove optimistic user message on error
         }
-        // ------------------------------------
     } finally {
         setIsLoading(false);
-        setAbortController(null); // --- Clear controller on completion/error ---
+        if (abortController) setAbortController(null); // Ensure controller is cleared
     }
-  };
+};
 
 
 
