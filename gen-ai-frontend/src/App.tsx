@@ -11,7 +11,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
   Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
   Typography, Alert, TextField, FormControl, InputLabel, Select, MenuItem,
-  Button, CircularProgress, Switch, FormControlLabel, IconButton
+  Button, Switch, FormControlLabel, IconButton
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import PersonIcon from '@mui/icons-material/Person';
@@ -21,7 +21,7 @@ import Brightness7Icon from '@mui/icons-material/Brightness7';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import DashboardIcon from '@mui/icons-material/Dashboard'; // Icon for admin
 import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
-import { ContentCopy as ContentCopyIcon, Check as CheckIcon } from '@mui/icons-material';
+import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
 import { AdminDashboard } from './AdminDashboard'; // Import the new component
