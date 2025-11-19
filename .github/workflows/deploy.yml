@@ -36,6 +36,24 @@ jobs:
             git fetch --all
             git reset --hard origin/main
 
+            # Build the frontend static files
+            echo "--- Building frontend ---"
+            cd gen-ai-frontend
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            npm install
+
+            # --- ADD ENV VARIABLE TO BUILD COMMAND ---
+            VITE_SENTRY_FRONTEND_DSN=${{ secrets.VITE_SENTRY_FRONTEND_DSN }} npm run build
+            # -----------------------------------------
+
+            cd .. 
+
+            # Deploy frontend files
+            echo "--- Deploying frontend files ---"
+            sudo rm -rf /var/www/html/*
+            sudo cp -R gen-ai-frontend/dist/* /var/www/html/
+
             # Clean up old Docker resources
             echo "--- Cleaning up Docker resources ---"
             sudo docker system prune -af || true
