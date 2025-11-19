@@ -17,21 +17,24 @@ from jose.exceptions import JOSEError
 
 import openai
 import google.generativeai as genai
-import sentry_sdk # Keep Sentry if you added it
+import sentry_sdk 
+# --- FIX: Explicitly import the FastAPI integration ---
+from sentry_sdk.integrations.fastapi import FastApiIntegration 
 
 ## -------------------
 ## CONFIGURATION
 ## -------------------
 load_dotenv()
 
-# Initialize Sentry (Optional - keep if you set it up)
+# Initialize Sentry
 SENTRY_BACKEND_DSN = os.getenv("SENTRY_BACKEND_DSN")
 if SENTRY_BACKEND_DSN:
     sentry_sdk.init(
         dsn=SENTRY_BACKEND_DSN,
         traces_sample_rate=1.0,
         profiles_sample_rate=1.0,
-        integrations=[sentry_sdk.integrations.fastapi.FastApiIntegration()],
+        # --- FIX: Use the imported class directly ---
+        integrations=[FastApiIntegration()],
     )
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -49,7 +52,7 @@ COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
 # DynamoDB Resources
 dynamodb = boto3.resource('dynamodb', region_name=COGNITO_REGION)
 chat_history_table = dynamodb.Table('ChatHistory')
-usage_logs_table = dynamodb.Table('UsageLogs') # New table for tracking costs
+usage_logs_table = dynamodb.Table('UsageLogs')
 
 SUPPORTED_MODELS = {
     "gpt-4o": { "type": "openai", "name": "gpt-4o" },
@@ -144,21 +147,17 @@ app = FastAPI()
 ## API ENDPOINTS
 ## -------------------
 
-# --- NEW: ADMIN STATS ENDPOINT ---
 @app.get("/api/admin/stats")
 async def get_admin_stats(current_user: dict = Depends(get_current_user)):
-    # 1. Check if user is authorized admin
     user_email = current_user.get("email")
     if user_email not in ADMIN_EMAILS:
         print(f"Unauthorized admin access attempt by: {user_email}")
         raise HTTPException(status_code=403, detail="Access denied. Admin privileges required.")
 
     try:
-        # 2. Scan UsageLogs (For MVP only - for large scale use Query)
         response = usage_logs_table.scan()
         items = response.get('Items', [])
 
-        # 3. Aggregate Data for Dashboard
         total_requests = len(items)
         total_tokens = 0
         model_usage = {}
@@ -166,15 +165,11 @@ async def get_admin_stats(current_user: dict = Depends(get_current_user)):
 
         for item in items:
             total_tokens += int(item.get('total_tokens', 0))
-            
             model = item.get('model', 'unknown')
             model_usage[model] = model_usage.get(model, 0) + 1
-            
             uid = item.get('userId')
-            # Just counting requests per user for now
             user_activity[uid] = user_activity.get(uid, 0) + 1
 
-        # Sort recent logs by timestamp descending
         recent_logs = sorted(items, key=lambda x: x['timestamp'], reverse=True)[:20]
 
         return {
@@ -189,14 +184,12 @@ async def get_admin_stats(current_user: dict = Depends(get_current_user)):
         print(f"Error fetching admin stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-
 @app.get("/api/conversations")
 async def get_conversations(current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     if not user_id:
         raise HTTPException(status_code=403, detail="User ID not found in token")
     try:
-        # Using scan for now. Ideally use GSI query if index is set up.
         response = chat_history_table.scan(
             FilterExpression=boto3.dynamodb.conditions.Attr('userId').eq(user_id)
         )
@@ -301,8 +294,6 @@ async def rename_conversation(conversation_id: str, request: RenameRequest, curr
         print(f"Error renaming conversation {conversation_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error while renaming conversation: {str(e)}")
 
-
-# --- MAIN GENERATE ENDPOINT (Non-Streaming + Usage Logging) ---
 @app.post("/api/generate")
 async def generate_text_sync(request: PromptRequest, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
@@ -317,7 +308,6 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
     if not final_prompt_for_llm:
          raise HTTPException(status_code=400, detail="Prompt cannot be empty unless an image is provided.")
 
-    # 1. Save user message
     try:
         chat_history_table.put_item(Item={
             'conversationId': conversation_id, 'timestamp': f"{timestamp}_user",
@@ -331,21 +321,19 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Model not supported")
 
     ai_response_text = ""
-    usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0} # Default
+    usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     try:
-        # 2. Call AI Model
         if model_config["type"] == "openai":
             messages_for_api = []
-            # Add System Prompt
             if request.systemPrompt and request.systemPrompt.strip():
                 messages_for_api.append({"role": "system", "content": request.systemPrompt.strip()})
-            # Add History
+            
             if request.history:
                 for msg in request.history:
                     role = "assistant" if msg.role == "model" else msg.role
                     messages_for_api.append({"role": role, "content": msg.content})
-            # Add Current Message
+
             user_content = []
             user_content.append({"type": "text", "text": final_prompt_for_llm})
             if request.image:
@@ -359,7 +347,6 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             )
             ai_response_text = response.choices[0].message.content or ""
             
-            # Capture Usage
             if response.usage:
                 usage_data = {
                     "prompt_tokens": response.usage.prompt_tokens,
@@ -371,13 +358,11 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             model = genai.GenerativeModel(model_config["name"])
             response = model.generate_content(final_prompt_for_llm)
             ai_response_text = response.text
-            # Gemini usage metadata is available but structure varies, can add later
 
     except Exception as e:
         print(f"Error calling AI service ({model_config.get('type')}): {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error from AI service: {str(e)}")
 
-    # 3. Save AI response
     ai_timestamp = datetime.now(timezone.utc).isoformat()
     try:
         chat_history_table.put_item(Item={
@@ -385,12 +370,10 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             'userId': user_id, 'sender': 'ai', 'text': ai_response_text
         })
         
-        # 4. --- SAVE USAGE LOG ---
-        # Only log if we have usage data (mainly OpenAI for now)
         if usage_data['total_tokens'] > 0:
             usage_logs_table.put_item(Item={
                 'userId': user_id,
-                'timestamp': ai_timestamp, # Unique ID for this log entry
+                'timestamp': ai_timestamp,
                 'model': request.model,
                 'prompt_tokens': usage_data['prompt_tokens'],
                 'completion_tokens': usage_data['completion_tokens'],
