@@ -5,7 +5,7 @@ import boto3
 import boto3.dynamodb.conditions
 from datetime import datetime, timezone
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import json
 
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -14,20 +14,35 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from jose import jwt, jwk
 from jose.exceptions import JOSEError
-import boto3.dynamodb.conditions
 
 import openai
 import google.generativeai as genai
+
+# Explicitly import Sentry integration if you are using it
+# from sentry_sdk.integrations.fastapi import FastApiIntegration
+# import sentry_sdk
 
 ## -------------------
 ## CONFIGURATION
 ## -------------------
 load_dotenv()
+
+# Initialize Sentry (Optional - uncomment if using Sentry)
+# SENTRY_BACKEND_DSN = os.getenv("SENTRY_BACKEND_DSN")
+# if SENTRY_BACKEND_DSN:
+#     sentry_sdk.init(
+#         dsn=SENTRY_BACKEND_DSN,
+#         traces_sample_rate=1.0,
+#         profiles_sample_rate=1.0,
+#         integrations=[FastApiIntegration()],
+#     )
+
 openai.api_key = os.getenv("OPENAI_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # --- ADMIN ACCESS CONTROL ---
-ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"] 
+# Replace with your actual email
+ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"]
 
 COGNITO_REGION = os.getenv("COGNITO_REGION", "ap-south-1")
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
@@ -36,14 +51,43 @@ COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
 dynamodb = boto3.resource('dynamodb', region_name=COGNITO_REGION)
 chat_history_table = dynamodb.Table('ChatHistory')
 usage_logs_table = dynamodb.Table('UsageLogs')
-# --- NEW: Shared Links Table ---
-shared_links_table = dynamodb.Table('SharedLinks') 
+shared_links_table = dynamodb.Table('SharedLinks')
 
 SUPPORTED_MODELS = {
     "gpt-4o": { "type": "openai", "name": "gpt-4o" },
     "gpt-4": { "type": "openai", "name": "gpt-4" },
     "gemini-pro": { "type": "google", "name": "gemini-1.5-pro-latest" },
     "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash" }
+}
+
+## -------------------
+## AGENT TOOLS DEFINITION
+## -------------------
+
+# 1. The Actual Python Function
+def get_current_server_time():
+    """Returns the current UTC date and time."""
+    return datetime.now(timezone.utc).isoformat()
+
+# 2. The Tool Schema (Tells OpenAI what the tool does)
+available_tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_server_time",
+            "description": "Get the current UTC date and time from the server. Use this when the user asks for the time or date.",
+            "parameters": {
+                "type": "object",
+                "properties": {}, # No parameters needed
+                "required": [],
+            },
+        }
+    }
+]
+
+# 3. Tool Map (To execute the function by name)
+tool_functions = {
+    "get_current_server_time": get_current_server_time
 }
 
 ## -------------------
@@ -136,7 +180,6 @@ async def get_admin_stats(current_user: dict = Depends(get_current_user)):
         items = response.get('Items', [])
         total_requests = len(items)
         total_tokens = sum(int(item.get('total_tokens', 0)) for item in items)
-        # Simple aggregations
         model_usage = {}
         user_activity = {}
         for item in items:
@@ -144,7 +187,6 @@ async def get_admin_stats(current_user: dict = Depends(get_current_user)):
             model_usage[model] = model_usage.get(model, 0) + 1
             uid = item.get('userId')
             user_activity[uid] = user_activity.get(uid, 0) + 1
-        
         return {
             "total_requests": total_requests,
             "total_tokens": total_tokens,
@@ -155,7 +197,6 @@ async def get_admin_stats(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         print(f"Error fetching admin stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
 
 @app.get("/api/conversations")
 async def get_conversations(current_user: dict = Depends(get_current_user)):
@@ -169,8 +210,7 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
         items_by_conv = {}
         for item in response.get('Items', []):
             conv_id = item['conversationId']
-            if conv_id not in items_by_conv:
-                items_by_conv[conv_id] = []
+            if conv_id not in items_by_conv: items_by_conv[conv_id] = []
             items_by_conv[conv_id].append(item)
 
         conversations = []
@@ -178,12 +218,9 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
             items.sort(key=lambda x: x['timestamp'])
             first_message = items[0]
             display_title = first_message.get('title', None) 
-            if not display_title:
-                 display_title = first_message.get('text', 'New Chat')[:50]
+            if not display_title: display_title = first_message.get('text', 'New Chat')[:50]
             conversations.append({'id': conv_id, 'title': display_title})
-
         return sorted(conversations, key=lambda x: x['title'])
-
     except Exception as e:
         print(f"Error getting conversations for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -191,36 +228,26 @@ async def get_conversations(current_user: dict = Depends(get_current_user)):
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation_messages(conversation_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=403, detail="User ID not found in token")
+    if not user_id: raise HTTPException(status_code=403, detail="User ID not found in token")
     try:
-        response = chat_history_table.query(
-            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
-        )
+        response = chat_history_table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id))
         items = response.get('Items', [])
-        if items and items[0].get('userId') != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        if items and items[0].get('userId') != user_id: raise HTTPException(status_code=403, detail="Access denied")
         items.sort(key=lambda x: x['timestamp'])
         return items
-    except Exception as e:
-        print(f"Error getting messages for conv {conversation_id}, user {user_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except Exception as e: raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
+    if not user_id: raise HTTPException(status_code=403, detail="User ID not found in token")
     try:
-        response = chat_history_table.query(
-            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
-        )
+        response = chat_history_table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id))
         items = response.get('Items', [])
-        if not items:
-            return {"detail": f"Conversation {conversation_id} not found or already deleted."}
-        if items[0].get('userId') != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        if not items: return {"detail": f"Conversation {conversation_id} not found or already deleted."}
+        if items[0].get('userId') != user_id: raise HTTPException(status_code=403, detail="Access denied")
         with chat_history_table.batch_writer() as batch:
-            for item in items:
-                batch.delete_item(Key={'conversationId': item['conversationId'],'timestamp': item['timestamp']})
+            for item in items: batch.delete_item(Key={'conversationId': item['conversationId'],'timestamp': item['timestamp']})
         print(f"Deleted {len(items)} items for conversation {conversation_id}")
         return {"detail": f"Conversation {conversation_id} deleted successfully."}
     except Exception as e:
@@ -231,88 +258,47 @@ async def delete_conversation(conversation_id: str, current_user: dict = Depends
 async def rename_conversation(conversation_id: str, request: RenameRequest, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     new_title = request.new_title.strip()
-    if not new_title:
-        raise HTTPException(status_code=400, detail="New title cannot be empty")
+    if not new_title: raise HTTPException(status_code=400, detail="New title cannot be empty")
     try:
-        response = chat_history_table.query(
-            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id),
-            ScanIndexForward=True
-        )
+        response = chat_history_table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id), ScanIndexForward=True)
         items = response.get('Items', [])
-        if not items:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        if items[0].get('userId') != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
+        if not items: raise HTTPException(status_code=404, detail="Conversation not found")
+        if items[0].get('userId') != user_id: raise HTTPException(status_code=403, detail="Access denied")
         first_message_timestamp = items[0]['timestamp']
-        chat_history_table.update_item(
-            Key={'conversationId': conversation_id, 'timestamp': first_message_timestamp},
-            UpdateExpression="SET title = :t",
-            ExpressionAttributeValues={ ':t': new_title }
-        )
+        chat_history_table.update_item(Key={'conversationId': conversation_id, 'timestamp': first_message_timestamp}, UpdateExpression="SET title = :t", ExpressionAttributeValues={ ':t': new_title })
         return {"id": conversation_id, "title": new_title}
     except Exception as e:
         print(f"Error renaming conversation {conversation_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-
-# --- SHARE CONVERSATION ENDPOINTS ---
-
-# 1. Create Share Link
 @app.post("/api/conversations/{conversation_id}/share")
 async def share_conversation(conversation_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
     try:
-        # Verify ownership
-        response = chat_history_table.query(
-            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
-        )
+        response = chat_history_table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id))
         items = response.get('Items', [])
-        if not items:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        if items[0].get('userId') != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
+        if not items: raise HTTPException(status_code=404, detail="Conversation not found")
+        if items[0].get('userId') != user_id: raise HTTPException(status_code=403, detail="Access denied")
         share_id = str(uuid.uuid4())
-        shared_links_table.put_item(Item={
-            'shareId': share_id,
-            'conversationId': conversation_id,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-            'ownerId': user_id
-        })
+        shared_links_table.put_item(Item={'shareId': share_id, 'conversationId': conversation_id, 'created_at': datetime.now(timezone.utc).isoformat(), 'ownerId': user_id})
         return {"shareId": share_id, "url": f"/share/{share_id}"}
-    except Exception as e:
-        print(f"Error sharing conversation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
-# 2. Get Shared Conversation (Public)
 @app.get("/api/share/{share_id}")
 async def get_shared_conversation(share_id: str):
     try:
         response = shared_links_table.get_item(Key={'shareId': share_id})
         link_data = response.get('Item')
-        if not link_data:
-            raise HTTPException(status_code=404, detail="Shared link not found or expired")
-        
+        if not link_data: raise HTTPException(status_code=404, detail="Shared link not found or expired")
         conversation_id = link_data['conversationId']
-        response = chat_history_table.query(
-            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
-        )
+        response = chat_history_table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id))
         items = response.get('Items', [])
         items.sort(key=lambda x: x['timestamp'])
-        
-        # Filter public data
-        public_items = [
-            {"text": item['text'], "sender": item['sender'], "timestamp": item['timestamp']}
-            for item in items
-        ]
+        public_items = [{"text": item['text'], "sender": item['sender'], "timestamp": item['timestamp']} for item in items]
         return {"conversationId": conversation_id, "messages": public_items}
-    except Exception as e:
-        print(f"Error fetching shared chat: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
-
-# --- MAIN GENERATE ENDPOINT ---
+# --- MAIN GENERATE ENDPOINT (WITH AGENTIC TOOLS) ---
 @app.post("/api/generate")
 async def generate_text_sync(request: PromptRequest, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
@@ -321,9 +307,7 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
     
     display_prompt = request.prompt or ("Image Received" if request.image else "...")
     final_prompt_for_llm = request.prompt or ("Describe this image." if request.image else "")
-    if not final_prompt_for_llm:
-         raise HTTPException(status_code=400, detail="Prompt cannot be empty unless an image is provided.")
-
+    
     # 1. Save user message
     try:
         chat_history_table.put_item(Item={
@@ -334,14 +318,12 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
          print(f"Error saving user message: {str(e)}")
 
     model_config = SUPPORTED_MODELS.get(request.model)
-    if not model_config:
-        raise HTTPException(status_code=400, detail="Model not supported")
+    if not model_config: raise HTTPException(status_code=400, detail="Model not supported")
 
     ai_response_text = ""
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     try:
-        # 2. Call AI Model
         if model_config["type"] == "openai":
             messages_for_api = []
             if request.systemPrompt and request.systemPrompt.strip():
@@ -358,19 +340,64 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
                 user_content.append({"type": "image_url", "image_url": {"url": request.image}})
             messages_for_api.append({"role": "user", "content": user_content})
 
+            # --- AGENT LOOP ---
+            # First call: Send prompt + tools
             response = openai.chat.completions.create(
                 model=model_config["name"],
                 messages=messages_for_api,
+                tools=available_tools, # Send tool definitions
+                tool_choice="auto",
                 max_tokens=1500
             )
-            ai_response_text = response.choices[0].message.content or ""
             
-            if response.usage:
-                usage_data = {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
-                }
+            response_message = response.choices[0].message
+            tool_calls = response_message.tool_calls
+
+            # Check if AI wants to use a tool
+            if tool_calls:
+                print(f"AI wants to use {len(tool_calls)} tool(s).")
+                # 1. Add AI's intent (tool calls) to history
+                messages_for_api.append(response_message)
+
+                # 2. Run tools
+                for tool_call in tool_calls:
+                    function_name = tool_call.function.name
+                    function_to_call = tool_functions.get(function_name)
+                    function_response = ""
+                    
+                    if function_to_call:
+                        # Execute the Python function
+                        try:
+                            function_response = function_to_call()
+                        except Exception as tool_err:
+                            function_response = f"Error executing tool: {tool_err}"
+                    else:
+                        function_response = f"Error: Tool {function_name} not found."
+
+                    # 3. Add tool result to history
+                    messages_for_api.append(
+                        {
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": function_name,
+                            "content": function_response,
+                        }
+                    )
+                
+                # 4. Second call: Send updated history back to AI for final answer
+                second_response = openai.chat.completions.create(
+                    model=model_config["name"],
+                    messages=messages_for_api
+                )
+                ai_response_text = second_response.choices[0].message.content or ""
+                if second_response.usage:
+                    usage_data = {"prompt_tokens": second_response.usage.prompt_tokens, "completion_tokens": second_response.usage.completion_tokens, "total_tokens": second_response.usage.total_tokens}
+            
+            else:
+                # No tool used, standard response
+                ai_response_text = response_message.content or ""
+                if response.usage:
+                    usage_data = {"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens, "total_tokens": response.usage.total_tokens}
 
         elif model_config["type"] == "google":
             model = genai.GenerativeModel(model_config["name"])
@@ -378,7 +405,7 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             ai_response_text = response.text
 
     except Exception as e:
-        print(f"Error calling AI service: {str(e)}")
+        print(f"Error calling AI: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error from AI service: {str(e)}")
 
     # 3. Save AI response
@@ -388,8 +415,6 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             'conversationId': conversation_id, 'timestamp': f"{ai_timestamp}_ai",
             'userId': user_id, 'sender': 'ai', 'text': ai_response_text
         })
-        
-        # 4. Save Usage Log
         if usage_data['total_tokens'] > 0:
             usage_logs_table.put_item(Item={
                 'userId': user_id,
@@ -400,8 +425,6 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
                 'total_tokens': usage_data['total_tokens'],
                 'user_email': current_user.get('email', 'unknown')
             })
-
-    except Exception as e:
-         print(f"Error saving AI message/logs: {str(e)}")
+    except Exception as e: print(f"Error saving logs: {str(e)}")
 
     return {"text": ai_response_text, "conversationId": conversation_id}
