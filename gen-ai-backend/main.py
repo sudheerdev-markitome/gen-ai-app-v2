@@ -39,6 +39,7 @@ load_dotenv()
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+SERPER_API_KEY = os.getenv("SERPER_API_KEY") # Load the key
 
 # --- ADMIN ACCESS CONTROL ---
 # Replace with your actual email
@@ -69,25 +70,55 @@ def get_current_server_time():
     """Returns the current UTC date and time."""
     return datetime.now(timezone.utc).isoformat()
 
-# 2. The Tool Schema (Tells OpenAI what the tool does)
+# 2. NEW: Google Search Tool
+def google_search(query):
+    """Searches the internet using Google (via Serper API)."""
+    url = "https://google.serper.dev/search"
+    payload = json.dumps({"q": query})
+    headers = {
+        'X-API-KEY': SERPER_API_KEY,
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.request("POST", url, headers=headers, data=payload)
+        return response.text
+    except Exception as e:
+        return f"Error searching Google: {e}"
+
+# 3. Update Tool Schema
 available_tools = [
     {
         "type": "function",
         "function": {
             "name": "get_current_server_time",
-            "description": "Get the current UTC date and time from the server. Use this when the user asks for the time or date.",
+            "description": "Get the current UTC date/time.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        }
+    },
+    # --- Add Search Tool Schema ---
+    {
+        "type": "function",
+        "function": {
+            "name": "google_search",
+            "description": "Search the internet for current events, facts, or real-time information.",
             "parameters": {
                 "type": "object",
-                "properties": {}, # No parameters needed
-                "required": [],
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query string (e.g., 'Apple stock price', 'latest AI news')"
+                    }
+                },
+                "required": ["query"],
             },
         }
     }
 ]
 
-# 3. Tool Map (To execute the function by name)
+# 4. Update Tool Map
 tool_functions = {
-    "get_current_server_time": get_current_server_time
+    "get_current_server_time": get_current_server_time,
+    "google_search": google_search # <-- Add mapping
 }
 
 ## -------------------
