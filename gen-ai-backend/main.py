@@ -5,7 +5,7 @@ import boto3
 import boto3.dynamodb.conditions
 from datetime import datetime, timezone
 import uuid
-from typing import List, Optional, Dict
+from typing import List, Optional
 import json
 
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -14,45 +14,30 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from jose import jwt, jwk
 from jose.exceptions import JOSEError
+import boto3.dynamodb.conditions
 
 import openai
 import google.generativeai as genai
-import sentry_sdk 
-# --- FIX: Explicitly import the FastAPI integration ---
-from sentry_sdk.integrations.fastapi import FastApiIntegration 
 
 ## -------------------
 ## CONFIGURATION
 ## -------------------
 load_dotenv()
-
-# Initialize Sentry
-SENTRY_BACKEND_DSN = os.getenv("SENTRY_BACKEND_DSN")
-if SENTRY_BACKEND_DSN:
-    sentry_sdk.init(
-        dsn=SENTRY_BACKEND_DSN,
-        traces_sample_rate=1.0,
-        profiles_sample_rate=1.0,
-        # --- FIX: Use the imported class directly ---
-        integrations=[FastApiIntegration()],
-    )
-
 openai.api_key = os.getenv("OPENAI_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # --- ADMIN ACCESS CONTROL ---
-# REPLACE THIS with your actual email address(es)
-ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"] 
+ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"] 
 
-# AWS Config
 COGNITO_REGION = os.getenv("COGNITO_REGION", "ap-south-1")
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
 COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
 
-# DynamoDB Resources
 dynamodb = boto3.resource('dynamodb', region_name=COGNITO_REGION)
 chat_history_table = dynamodb.Table('ChatHistory')
 usage_logs_table = dynamodb.Table('UsageLogs')
+# --- NEW: Shared Links Table ---
+shared_links_table = dynamodb.Table('SharedLinks') 
 
 SUPPORTED_MODELS = {
     "gpt-4o": { "type": "openai", "name": "gpt-4o" },
@@ -111,13 +96,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             issuer=f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
         )
         return payload
-    except jwt.ExpiredSignatureError:
-         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
-    except jwt.JWTClaimsError as e:
-         print(f"JWT Claims Error: {e}")
-         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid claims: {e}")
-    except Exception as e:
-         print(f"Unexpected token validation error: {e}")
+    except Exception:
          raise credentials_exception
 
 ## -------------------
@@ -151,38 +130,32 @@ app = FastAPI()
 async def get_admin_stats(current_user: dict = Depends(get_current_user)):
     user_email = current_user.get("email")
     if user_email not in ADMIN_EMAILS:
-        print(f"Unauthorized admin access attempt by: {user_email}")
-        raise HTTPException(status_code=403, detail="Access denied. Admin privileges required.")
-
+        raise HTTPException(status_code=403, detail="Access denied. Admin only.")
     try:
         response = usage_logs_table.scan()
         items = response.get('Items', [])
-
         total_requests = len(items)
-        total_tokens = 0
+        total_tokens = sum(int(item.get('total_tokens', 0)) for item in items)
+        # Simple aggregations
         model_usage = {}
         user_activity = {}
-
         for item in items:
-            total_tokens += int(item.get('total_tokens', 0))
             model = item.get('model', 'unknown')
             model_usage[model] = model_usage.get(model, 0) + 1
             uid = item.get('userId')
             user_activity[uid] = user_activity.get(uid, 0) + 1
-
-        recent_logs = sorted(items, key=lambda x: x['timestamp'], reverse=True)[:20]
-
+        
         return {
             "total_requests": total_requests,
             "total_tokens": total_tokens,
             "model_usage": model_usage,
             "active_users_count": len(user_activity),
-            "recent_logs": recent_logs
+            "recent_logs": sorted(items, key=lambda x: x['timestamp'], reverse=True)[:20]
         }
-
     except Exception as e:
         print(f"Error fetching admin stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
 
 @app.get("/api/conversations")
 async def get_conversations(current_user: dict = Depends(get_current_user)):
@@ -236,9 +209,6 @@ async def get_conversation_messages(conversation_id: str, current_user: dict = D
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=403, detail="User ID not found in token")
-
     try:
         response = chat_history_table.query(
             KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
@@ -254,8 +224,8 @@ async def delete_conversation(conversation_id: str, current_user: dict = Depends
         print(f"Deleted {len(items)} items for conversation {conversation_id}")
         return {"detail": f"Conversation {conversation_id} deleted successfully."}
     except Exception as e:
-        print(f"Error deleting conversation {conversation_id} for user {user_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error while deleting conversation: {str(e)}")
+        print(f"Error deleting conversation {conversation_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.put("/api/conversations/{conversation_id}")
 async def rename_conversation(conversation_id: str, request: RenameRequest, current_user: dict = Depends(get_current_user)):
@@ -263,9 +233,6 @@ async def rename_conversation(conversation_id: str, request: RenameRequest, curr
     new_title = request.new_title.strip()
     if not new_title:
         raise HTTPException(status_code=400, detail="New title cannot be empty")
-    if len(new_title) > 100:
-        raise HTTPException(status_code=400, detail="Title cannot exceed 100 characters")
-
     try:
         response = chat_history_table.query(
             KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id),
@@ -279,27 +246,76 @@ async def rename_conversation(conversation_id: str, request: RenameRequest, curr
         
         first_message_timestamp = items[0]['timestamp']
         chat_history_table.update_item(
-            Key={
-                'conversationId': conversation_id,
-                'timestamp': first_message_timestamp
-            },
+            Key={'conversationId': conversation_id, 'timestamp': first_message_timestamp},
             UpdateExpression="SET title = :t",
             ExpressionAttributeValues={ ':t': new_title }
         )
-        print(f"Renamed conversation {conversation_id} to '{new_title}'")
         return {"id": conversation_id, "title": new_title}
-    except HTTPException as http_exc:
-        raise http_exc
     except Exception as e:
         print(f"Error renaming conversation {conversation_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error while renaming conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+
+# --- SHARE CONVERSATION ENDPOINTS ---
+
+# 1. Create Share Link
+@app.post("/api/conversations/{conversation_id}/share")
+async def share_conversation(conversation_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("sub")
+    try:
+        # Verify ownership
+        response = chat_history_table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
+        )
+        items = response.get('Items', [])
+        if not items:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        if items[0].get('userId') != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        share_id = str(uuid.uuid4())
+        shared_links_table.put_item(Item={
+            'shareId': share_id,
+            'conversationId': conversation_id,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'ownerId': user_id
+        })
+        return {"shareId": share_id, "url": f"/share/{share_id}"}
+    except Exception as e:
+        print(f"Error sharing conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 2. Get Shared Conversation (Public)
+@app.get("/api/share/{share_id}")
+async def get_shared_conversation(share_id: str):
+    try:
+        response = shared_links_table.get_item(Key={'shareId': share_id})
+        link_data = response.get('Item')
+        if not link_data:
+            raise HTTPException(status_code=404, detail="Shared link not found or expired")
+        
+        conversation_id = link_data['conversationId']
+        response = chat_history_table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
+        )
+        items = response.get('Items', [])
+        items.sort(key=lambda x: x['timestamp'])
+        
+        # Filter public data
+        public_items = [
+            {"text": item['text'], "sender": item['sender'], "timestamp": item['timestamp']}
+            for item in items
+        ]
+        return {"conversationId": conversation_id, "messages": public_items}
+    except Exception as e:
+        print(f"Error fetching shared chat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- MAIN GENERATE ENDPOINT ---
 @app.post("/api/generate")
 async def generate_text_sync(request: PromptRequest, current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=403, detail="User ID not found in token")
-
     conversation_id = request.conversationId or str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
     
@@ -308,13 +324,14 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
     if not final_prompt_for_llm:
          raise HTTPException(status_code=400, detail="Prompt cannot be empty unless an image is provided.")
 
+    # 1. Save user message
     try:
         chat_history_table.put_item(Item={
             'conversationId': conversation_id, 'timestamp': f"{timestamp}_user",
             'userId': user_id, 'sender': 'user', 'text': display_prompt
         })
     except Exception as e:
-         print(f"Error saving user message to DynamoDB: {str(e)}")
+         print(f"Error saving user message: {str(e)}")
 
     model_config = SUPPORTED_MODELS.get(request.model)
     if not model_config:
@@ -324,6 +341,7 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
     usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     try:
+        # 2. Call AI Model
         if model_config["type"] == "openai":
             messages_for_api = []
             if request.systemPrompt and request.systemPrompt.strip():
@@ -360,9 +378,10 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             ai_response_text = response.text
 
     except Exception as e:
-        print(f"Error calling AI service ({model_config.get('type')}): {str(e)}")
+        print(f"Error calling AI service: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error from AI service: {str(e)}")
 
+    # 3. Save AI response
     ai_timestamp = datetime.now(timezone.utc).isoformat()
     try:
         chat_history_table.put_item(Item={
@@ -370,6 +389,7 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             'userId': user_id, 'sender': 'ai', 'text': ai_response_text
         })
         
+        # 4. Save Usage Log
         if usage_data['total_tokens'] > 0:
             usage_logs_table.put_item(Item={
                 'userId': user_id,
@@ -382,6 +402,6 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
             })
 
     except Exception as e:
-         print(f"Error saving AI message or usage log: {str(e)}")
+         print(f"Error saving AI message/logs: {str(e)}")
 
     return {"text": ai_response_text, "conversationId": conversation_id}
