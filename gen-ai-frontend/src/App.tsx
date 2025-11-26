@@ -6,6 +6,7 @@ import { withAuthenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import awsExports from './aws-exports';
 import { Toaster, toast } from 'react-hot-toast';
+import ShareIcon from '@mui/icons-material/Share';
 
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
@@ -174,6 +175,24 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err: any) { if (err.name === 'AbortError') { console.log('Fetch aborted'); } else { setError(err.message); setMessages(prev => prev.slice(0, -1)); } } finally { setIsLoading(false); setAbortController(null); }
   };
 
+  const handleShareChat = async () => {
+    if (!activeConversationId) return;
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/conversations/${activeConversationId}/share`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+    // Copy full URL to clipboard
+      const fullUrl = `${window.location.origin}${data.url}`;
+      await navigator.clipboard.writeText(fullUrl);
+      toast.success("Link copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to generate share link.");
+    }
+  };
+
   // Check signInDetails.loginId first, fallback to attributes.email just in case
   const userEmail = user?.signInDetails?.loginId || user?.attributes?.email;
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
@@ -216,6 +235,16 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   {currentView === 'chat' ? 'Admin' : 'Chat'}
                 </Button>
               )}
+              {activeConversationId && (
+              <Button 
+                variant="text" 
+                startIcon={<ShareIcon />} 
+                onClick={handleShareChat}
+                sx={{ mr: 1 }}
+              >
+                Share
+              </Button>
+        )}
               {/* --------------------------- */}
               <FormControlLabel control={<Switch checked={darkMode} onChange={handleThemeChange} />} label={darkMode ? <Brightness4Icon /> : <Brightness7Icon />} />
               <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
