@@ -37,7 +37,7 @@ const drawerWidth = 280;
 
 // --- CONFIG ---
 // Copy your admin emails here to control button visibility
-const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"]; 
+const ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"]; 
 
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
 interface Message { sender: 'user' | 'ai'; text: string; }
