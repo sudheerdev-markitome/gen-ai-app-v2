@@ -53,6 +53,10 @@ const CodeBlock = ({ node, inline, className, children, darkMode, ...props }: an
 };
 
 function App({ signOut, user }: { signOut?: () => void; user?: any }) {
+
+  // --- DEBUG LOGGING ---
+  console.log("Current User Object:", user); 
+  // ---------------------
   // --- State Management ---
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -170,8 +174,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err: any) { if (err.name === 'AbortError') { console.log('Fetch aborted'); } else { setError(err.message); setMessages(prev => prev.slice(0, -1)); } } finally { setIsLoading(false); setAbortController(null); }
   };
 
-  // --- Calculate if User is Admin ---
-  const userEmail = user?.attributes?.email;
+  // Check signInDetails.loginId first, fallback to attributes.email just in case
+  const userEmail = user?.signInDetails?.loginId || user?.attributes?.email;
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
 
   // --- JSX Rendering ---
