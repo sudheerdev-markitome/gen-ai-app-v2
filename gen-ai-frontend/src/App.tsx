@@ -183,12 +183,23 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      
+      if (!res.ok) {
+        throw new Error("Failed to generate share link");
+      }
+
       const data = await res.json();
-    // Copy full URL to clipboard
-      const fullUrl = `${window.location.origin}${data.url}`;
+      
+      // FIX: Explicitly verify we have a shareId and construct URL manually
+      if (!data.shareId) {
+         throw new Error("Server did not return a share ID");
+      }
+
+      const fullUrl = `${window.location.origin}/share/${data.shareId}`;
       await navigator.clipboard.writeText(fullUrl);
       toast.success("Link copied to clipboard!");
     } catch (err) {
+      console.error(err);
       toast.error("Failed to generate share link.");
     }
   };
