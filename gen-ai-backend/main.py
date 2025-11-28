@@ -357,8 +357,26 @@ async def generate_text_sync(request: PromptRequest, current_user: dict = Depend
     try:
         if model_config["type"] == "openai":
             messages_for_api = []
+
+            # --- FIX: FORCE TOOL AWARENESS IN SYSTEM PROMPT ---
+            # Define a base system prompt that mentions the tools
+            base_system_prompt = (
+                "You are a helpful AI assistant. "
+                "You have access to a 'google_search' tool that can search the internet for real-time information. "
+                "You also have a 'get_current_server_time' tool. "
+                "ALWAYS use the 'google_search' tool if the user asks about current events, news, stock prices, or anything that requires up-to-date knowledge. "
+                "Do not say you cannot search the internet; just use the tool."
+            )
+
+            # Combine with user-provided system prompt if it exists
+
             if request.systemPrompt and request.systemPrompt.strip():
-                messages_for_api.append({"role": "system", "content": request.systemPrompt.strip()})
+                final_system_prompt = f"{base_system_prompt}\n\nUser Instructions: {request.systemPrompt.strip()}"
+            else:
+                final_system_prompt = base_system_prompt
+
+            messages_for_api.append({"role": "system", "content": final_system_prompt})
+            # --------------------------------------------------
             
             if request.history:
                 for msg in request.history:
