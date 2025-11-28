@@ -53,7 +53,8 @@ export const AdminDashboard: React.FC = () => {
 
   useEffect(() => { fetchData(); }, []);
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  // --- FIX: Rename 'event' to '_event' to silence unused variable error ---
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabIndex(newValue);
   };
 
