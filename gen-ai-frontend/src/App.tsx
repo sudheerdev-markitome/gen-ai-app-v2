@@ -23,6 +23,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard'; // Icon for admin
 import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
 import ShareIcon from '@mui/icons-material/Share'; // Icon for share
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'; // Icon for library
+import MicIcon from '@mui/icons-material/Mic'; // Icon for voice
 import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
@@ -39,12 +40,18 @@ Amplify.configure(awsExports);
 const drawerWidth = 280;
 
 // --- CONFIG ---
-// REPLACE WITH YOUR ACTUAL EMAIL ADDRESSES
+// Copy your admin emails here to control button visibility
 const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"]; 
 
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
 interface Message { sender: 'user' | 'ai'; text: string; }
 interface Conversation { id: string; title: string; }
+
+// Add Web Speech API type definition
+interface IWindow extends Window {
+  webkitSpeechRecognition: any;
+  SpeechRecognition: any;
+}
 
 const CodeBlock = ({ node, inline, className, children, darkMode, ...props }: any) => {
     const match = /language-(\w+)/.exec(className || '');
@@ -70,6 +77,10 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [systemPrompt, setSystemPrompt] = useState<string>('');
   const [currentView, setCurrentView] = useState<'chat' | 'admin'>('chat');
   const [isLibraryOpen, setIsLibraryOpen] = useState(false); // State for Library Dialog
+  
+  // --- Voice Input State ---
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   const lightTheme = createTheme({ palette: { mode: 'light' } });
   const darkTheme = createTheme({ palette: { mode: 'dark' } });
@@ -172,6 +183,52 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const handleSelectPrompt = (newPrompt: string) => {
     setPrompt(newPrompt);
     setIsLibraryOpen(false);
+  };
+
+  // --- Handle Voice Input ---
+  const handleVoiceInput = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const windowObj = window as unknown as IWindow;
+    const SpeechRecognition = windowObj.SpeechRecognition || windowObj.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      toast.error("Browser doesn't support speech recognition.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      toast.success("Listening...", { id: 'voice-status' });
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      toast.dismiss('voice-status');
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setPrompt((prev) => prev + (prev ? ' ' : '') + transcript);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      toast.error(`Speech error: ${event.error}`);
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -310,6 +367,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                           sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
                         >
                           <LibraryBooksIcon />
+                        </IconButton>
+                      </Tooltip>
+
+                      {/* --- NEW: Voice Input Button --- */}
+                      <Tooltip title={isListening ? "Listening..." : "Speak Input"}>
+                        <IconButton 
+                          onClick={handleVoiceInput} 
+                          color={isListening ? "error" : "primary"}
+                          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, animation: isListening ? 'pulse 1.5s infinite' : 'none' }}
+                        >
+                          <MicIcon />
                         </IconButton>
                       </Tooltip>
                     </Box>
