@@ -24,11 +24,13 @@ import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
 import ShareIcon from '@mui/icons-material/Share'; // Icon for share
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'; // Icon for library
 import MicIcon from '@mui/icons-material/Mic'; // Icon for voice
+import BugReportIcon from '@mui/icons-material/BugReport'; // <-- NEW: Feedback Icon
 import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
 import { AdminDashboard } from './AdminDashboard';
 import { PromptLibrary } from './PromptLibrary';
+import { FeedbackDialog } from './FeedbackDialog'; // <-- NEW: Import Feedback Dialog
 
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -76,7 +78,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string>('');
   const [currentView, setCurrentView] = useState<'chat' | 'admin'>('chat');
-  const [isLibraryOpen, setIsLibraryOpen] = useState(false); // State for Library Dialog
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false); // <-- NEW: Feedback State
   
   // --- Voice Input State ---
   const [isListening, setIsListening] = useState(false);
@@ -267,11 +270,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       <Toaster position="top-center" reverseOrder={false} toastOptions={{ duration: 3000, style: { background: darkMode ? '#333' : '#fff', color: darkMode ? '#fff' : '#333' } }} />
       <CssBaseline />
       
-      {/* --- Prompt Library Dialog --- */}
+      {/* --- Dialogs --- */}
       <PromptLibrary 
         open={isLibraryOpen} 
         onClose={() => setIsLibraryOpen(false)} 
         onSelectPrompt={handleSelectPrompt} 
+      />
+      
+      {/* --- NEW: Feedback Dialog --- */}
+      <FeedbackDialog
+        open={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
       />
 
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -298,18 +307,19 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 </Box>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-               {/* --- Share Button (Visible only if chat is active and in Chat View) --- */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+               {/* --- Share Button --- */}
                {activeConversationId && currentView === 'chat' && (
-                  <Button 
-                      variant="text" 
-                      startIcon={<ShareIcon />} 
-                      onClick={handleShareChat}
-                      sx={{ mr: 1 }}
-                  >
-                      Share
-                  </Button>
+                  <Button variant="text" startIcon={<ShareIcon />} onClick={handleShareChat} sx={{ mr: 1 }}>Share</Button>
               )}
+              
+              {/* --- NEW: Feedback Button --- */}
+              <Tooltip title="Report Bug / Feedback">
+                <IconButton onClick={() => setIsFeedbackOpen(true)} color="default">
+                  <BugReportIcon />
+                </IconButton>
+              </Tooltip>
+
               {/* --- ADMIN TOGGLE BUTTON --- */}
               {isAdmin && (
                 <Button 
@@ -370,7 +380,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                         </IconButton>
                       </Tooltip>
 
-                      {/* --- NEW: Voice Input Button --- */}
+                      {/* --- Voice Input Button --- */}
                       <Tooltip title={isListening ? "Listening..." : "Speak Input"}>
                         <IconButton 
                           onClick={handleVoiceInput} 
