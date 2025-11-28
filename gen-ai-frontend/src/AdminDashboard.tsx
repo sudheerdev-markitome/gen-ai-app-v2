@@ -62,7 +62,8 @@ export const AdminDashboard: React.FC = () => {
       const data = await res.json();
       setStats(data);
     } catch (err: any) {
-      setError(err.message);
+      console.error("Dashboard Error:", err);
+      setError(err.message || "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -90,7 +91,7 @@ export const AdminDashboard: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 4, pb: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" component="h1">
           Admin Dashboard
@@ -101,34 +102,35 @@ export const AdminDashboard: React.FC = () => {
       </Box>
 
       {/* Summary Cards */}
+      {/* Updated Grid to remove 'item' and use 'size' prop */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size = {{ xs: 12, md: 4 }}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140 }}>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140, justifyContent: 'center' }}>
             <Typography component="h2" variant="h6" color="primary" gutterBottom>
               Total Requests
             </Typography>
             <Typography component="p" variant="h3">
-              {stats?.total_requests}
+              {stats?.total_requests ?? 0}
             </Typography>
           </Paper>
         </Grid>
-        <Grid size = {{ xs:12, md:4}}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140 }}>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140, justifyContent: 'center' }}>
             <Typography component="h2" variant="h6" color="primary" gutterBottom>
-              Total Tokens Used
+              Total Tokens
             </Typography>
             <Typography component="p" variant="h3">
-              {stats?.total_tokens.toLocaleString()}
+              {stats?.total_tokens?.toLocaleString() ?? 0}
             </Typography>
           </Paper>
         </Grid>
-        <Grid size={{xs:12, md:4}}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140 }}>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140, justifyContent: 'center' }}>
             <Typography component="h2" variant="h6" color="primary" gutterBottom>
               Active Users
             </Typography>
             <Typography component="p" variant="h3">
-              {stats?.active_users_count}
+              {stats?.active_users_count ?? 0}
             </Typography>
           </Paper>
         </Grid>
@@ -146,23 +148,22 @@ export const AdminDashboard: React.FC = () => {
                 <TableCell>Time</TableCell>
                 <TableCell>User</TableCell>
                 <TableCell>Model</TableCell>
-                <TableCell align="right">Prompt Tokens</TableCell>
-                <TableCell align="right">Completion Tokens</TableCell>
-                <TableCell align="right">Total Cost (Est.)</TableCell>
+                <TableCell align="right">Prompt</TableCell>
+                <TableCell align="right">Completion</TableCell>
+                <TableCell align="right">Cost (Est)</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {stats?.recent_logs.map((row) => (
-                <TableRow key={row.timestamp}>
+              {stats?.recent_logs?.map((row, index) => (
+                <TableRow key={row.timestamp + index}>
                   <TableCell>{new Date(row.timestamp).toLocaleString()}</TableCell>
-                  <TableCell>{row.user_email || row.userId}</TableCell>
+                  <TableCell>{row.user_email || row.userId || 'Unknown'}</TableCell>
                   <TableCell>{row.model}</TableCell>
                   <TableCell align="right">{row.prompt_tokens}</TableCell>
                   <TableCell align="right">{row.completion_tokens}</TableCell>
                   <TableCell align="right">
-                    {/* Simple estimation for GPT-4o: ~$5.00/1M input, ~$15.00/1M output */}
-                    {row.model.includes('gpt-4o') 
-                      ? `$${((row.prompt_tokens * 5 + row.completion_tokens * 15) / 1000000).toFixed(5)}` 
+                    {row.model && row.model.includes('gpt-4o') 
+                      ? `$${(( (row.prompt_tokens || 0) * 5 + (row.completion_tokens || 0) * 15) / 1000000).toFixed(5)}` 
                       : '-'}
                   </TableCell>
                 </TableRow>
