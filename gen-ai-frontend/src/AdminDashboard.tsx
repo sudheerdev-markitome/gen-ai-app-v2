@@ -1,9 +1,23 @@
 // src/AdminDashboard.tsx
 import React, { useEffect, useState } from 'react';
 import {
-  Box, Container, Grid, Paper, Typography, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, CircularProgress, Alert, Button,
-  Tabs, Tab, Chip
+  Box,
+  Container,
+  Paper,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  CircularProgress,
+  Alert,
+  Button,
+  Tabs,
+  Tab,
+  Chip,
+  Stack // Using Stack instead of Grid for stability
 } from '@mui/material';
 import { fetchAuthSession } from '@aws-amplify/auth';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -53,13 +67,18 @@ export const AdminDashboard: React.FC = () => {
 
   useEffect(() => { fetchData(); }, []);
 
-  // --- FIX: Rename 'event' to '_event' to silence unused variable error ---
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabIndex(newValue);
   };
 
   if (loading && !stats) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>;
-  if (error) return <Container sx={{ mt: 4 }}><Alert severity="error">{error}</Alert><Button onClick={fetchData} sx={{ mt: 2 }}>Retry</Button></Container>;
+  
+  if (error) return (
+    <Container sx={{ mt: 4 }}>
+      <Alert severity="error">{error}</Alert>
+      <Button onClick={fetchData} sx={{ mt: 2 }} variant="outlined">Retry</Button>
+    </Container>
+  );
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4, pb: 4 }}>
@@ -71,33 +90,32 @@ export const AdminDashboard: React.FC = () => {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tabIndex} onChange={handleTabChange}>
           <Tab label="Overview" />
-          <Tab label={`Feedback (${feedbackList.length})`} />
+          <Tab label={`Feedback (${feedbackList?.length ?? 0})`} />
         </Tabs>
       </Box>
 
       {/* TAB 0: OVERVIEW */}
       {tabIndex === 0 && (
         <>
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Paper sx={{ p: 2, height: 140, justifyContent: 'center', display: 'flex', flexDirection: 'column' }}>
-                <Typography color="primary">Total Requests</Typography>
-                <Typography variant="h3">{stats?.total_requests}</Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Paper sx={{ p: 2, height: 140, justifyContent: 'center', display: 'flex', flexDirection: 'column' }}>
-                <Typography color="primary">Total Tokens</Typography>
-                <Typography variant="h3">{stats?.total_tokens.toLocaleString()}</Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <Paper sx={{ p: 2, height: 140, justifyContent: 'center', display: 'flex', flexDirection: 'column' }}>
-                <Typography color="primary">Active Users</Typography>
-                <Typography variant="h3">{stats?.active_users_count}</Typography>
-              </Paper>
-            </Grid>
-          </Grid>
+          {/* Stats Cards Layout using Stack (Responsive Flexbox) */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
+             {/* Card 1 */}
+             <Paper sx={{ p: 2, flex: '1 1 300px', height: 140, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <Typography color="primary" variant="h6">Total Requests</Typography>
+                <Typography variant="h3">{stats?.total_requests ?? 0}</Typography>
+             </Paper>
+             {/* Card 2 */}
+             <Paper sx={{ p: 2, flex: '1 1 300px', height: 140, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <Typography color="primary" variant="h6">Total Tokens</Typography>
+                <Typography variant="h3">{stats?.total_tokens?.toLocaleString() ?? 0}</Typography>
+             </Paper>
+             {/* Card 3 */}
+             <Paper sx={{ p: 2, flex: '1 1 300px', height: 140, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <Typography color="primary" variant="h6">Active Users</Typography>
+                <Typography variant="h3">{stats?.active_users_count ?? 0}</Typography>
+             </Paper>
+          </Box>
+
           <Paper sx={{ p: 2 }}>
             <Typography variant="h6" gutterBottom>Recent Usage</Typography>
             <TableContainer>
@@ -106,12 +124,12 @@ export const AdminDashboard: React.FC = () => {
                   <TableRow><TableCell>Time</TableCell><TableCell>User</TableCell><TableCell>Model</TableCell><TableCell>Tokens</TableCell></TableRow>
                 </TableHead>
                 <TableBody>
-                  {stats?.recent_logs.map((row, i) => (
+                  {stats?.recent_logs?.map((row, i) => (
                     <TableRow key={i}>
                       <TableCell>{new Date(row.timestamp).toLocaleString()}</TableCell>
                       <TableCell>{row.user_email || row.userId}</TableCell>
                       <TableCell>{row.model}</TableCell>
-                      <TableCell>{row.total_tokens}</TableCell>
+                      <TableCell>{row.total_tokens ?? 0}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -137,7 +155,7 @@ export const AdminDashboard: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {feedbackList.map((fb) => (
+                {feedbackList?.map((fb) => (
                   <TableRow key={fb.feedbackId}>
                     <TableCell>{new Date(fb.timestamp).toLocaleDateString()}</TableCell>
                     <TableCell>{fb.userEmail}</TableCell>
@@ -152,7 +170,7 @@ export const AdminDashboard: React.FC = () => {
                     <TableCell>{fb.status}</TableCell>
                   </TableRow>
                 ))}
-                {feedbackList.length === 0 && (
+                {(!feedbackList || feedbackList.length === 0) && (
                   <TableRow><TableCell colSpan={5} align="center">No feedback submitted yet.</TableCell></TableRow>
                 )}
               </TableBody>
