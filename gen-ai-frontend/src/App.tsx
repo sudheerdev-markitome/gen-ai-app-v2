@@ -6,7 +6,6 @@ import { withAuthenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import awsExports from './aws-exports';
 import { Toaster, toast } from 'react-hot-toast';
-import ShareIcon from '@mui/icons-material/Share';
 
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
@@ -22,6 +21,7 @@ import Brightness7Icon from '@mui/icons-material/Brightness7';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import DashboardIcon from '@mui/icons-material/Dashboard'; // Icon for admin
 import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
+import ShareIcon from '@mui/icons-material/Share'; // Icon for share
 import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
@@ -38,7 +38,7 @@ const drawerWidth = 280;
 
 // --- CONFIG ---
 // Copy your admin emails here to control button visibility
-const ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"]; 
+const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"]; 
 
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
 interface Message { sender: 'user' | 'ai'; text: string; }
@@ -54,10 +54,6 @@ const CodeBlock = ({ node, inline, className, children, darkMode, ...props }: an
 };
 
 function App({ signOut, user }: { signOut?: () => void; user?: any }) {
-
-  // --- DEBUG LOGGING ---
-  console.log("Current User Object:", user); 
-  // ---------------------
   // --- State Management ---
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -106,7 +102,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // ... (Keep handleSelectConversation, handleNewConversation, handleDeleteConversation, handleRenameConversation, handleCopyText, handleStopGenerating EXACTLY as they were) ...
+  // ... (Keep handleSelectConversation, handleNewConversation, handleRenameConversation, handleCopyText, handleStopGenerating EXACTLY as they were) ...
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id); setMessages([]); setError(''); setIsLoading(true);
     try {
@@ -119,6 +115,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err: any) { setError(`Failed to load messages: ${err.message}`); } finally { setIsLoading(false); }
   };
   const handleNewConversation = () => { setActiveConversationId(null); setMessages([]); setPrompt(''); setError(''); };
+
+  // --- FIX: REMOVE THROWING ERROR ON SUCCESS ---
   const handleDeleteConversation = async (id: string) => {
     setError('');
     try {
@@ -127,9 +125,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.detail || 'Failed to delete conversation'); }
       setConversations(prev => prev.filter(conv => conv.id !== id));
       if (activeConversationId === id) { handleNewConversation(); }
-      throw new Error("Conversation deleted successfully.");
+      // Removed: throw new Error("Conversation deleted successfully."); 
+      // The function now returns successfully (void), which the Sidebar interprets as success.
     } catch (error) { throw error; }
   };
+  // ---------------------------------------------
+
   const handleRenameConversation = async (id: string, newTitle: string): Promise<Conversation> => {
     setError('');
     try {
@@ -146,6 +147,34 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
   const handleStopGenerating = () => {
     if (abortController) { abortController.abort(); setAbortController(null); setIsLoading(false); setMessages(prev => { const lastMessage = prev[prev.length - 1]; if (lastMessage && lastMessage.sender === 'ai' && lastMessage.text === '') { return prev.slice(0, -1); } return prev; }); toast.error("Generation stopped by user."); }
+  };
+
+  const handleShareChat = async () => {
+    if (!activeConversationId) return;
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`/api/conversations/${activeConversationId}/share`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!res.ok) {
+        throw new Error("Failed to generate share link");
+      }
+      
+      const data = await res.json();
+      
+      if (!data.shareId) {
+         throw new Error("Server did not return a share ID");
+      }
+
+      const fullUrl = `${window.location.origin}/share/${data.shareId}`;
+      await navigator.clipboard.writeText(fullUrl);
+      toast.success("Link copied to clipboard!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate share link.");
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -175,36 +204,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err: any) { if (err.name === 'AbortError') { console.log('Fetch aborted'); } else { setError(err.message); setMessages(prev => prev.slice(0, -1)); } } finally { setIsLoading(false); setAbortController(null); }
   };
 
-  const handleShareChat = async () => {
-    if (!activeConversationId) return;
-    try {
-      const token = await getAuthToken();
-      const res = await fetch(`/api/conversations/${activeConversationId}/share`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (!res.ok) {
-        throw new Error("Failed to generate share link");
-      }
-
-      const data = await res.json();
-      
-      // FIX: Explicitly verify we have a shareId and construct URL manually
-      if (!data.shareId) {
-         throw new Error("Server did not return a share ID");
-      }
-
-      const fullUrl = `${window.location.origin}/share/${data.shareId}`;
-      await navigator.clipboard.writeText(fullUrl);
-      toast.success("Link copied to clipboard!");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to generate share link.");
-    }
-  };
-
-  // Check signInDetails.loginId first, fallback to attributes.email just in case
+  // --- Calculate if User is Admin ---
   const userEmail = user?.signInDetails?.loginId || user?.attributes?.email;
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
 
@@ -236,6 +236,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+               {/* --- Share Button (Visible only if chat is active and in Chat View) --- */}
+               {activeConversationId && currentView === 'chat' && (
+                  <Button 
+                      variant="text" 
+                      startIcon={<ShareIcon />} 
+                      onClick={handleShareChat}
+                      sx={{ mr: 1 }}
+                  >
+                      Share
+                  </Button>
+              )}
               {/* --- ADMIN TOGGLE BUTTON --- */}
               {isAdmin && (
                 <Button 
@@ -246,16 +257,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   {currentView === 'chat' ? 'Admin' : 'Chat'}
                 </Button>
               )}
-              {activeConversationId && (
-              <Button 
-                variant="text" 
-                startIcon={<ShareIcon />} 
-                onClick={handleShareChat}
-                sx={{ mr: 1 }}
-              >
-                Share
-              </Button>
-        )}
               {/* --------------------------- */}
               <FormControlLabel control={<Switch checked={darkMode} onChange={handleThemeChange} />} label={darkMode ? <Brightness4Icon /> : <Brightness7Icon />} />
               <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
