@@ -16,8 +16,8 @@ import {
   Button,
   Tabs,
   Tab,
-  Chip,
-  Stack // Using Stack instead of Grid for stability
+  Chip
+  // Stack removed as it was unused
 } from '@mui/material';
 import { fetchAuthSession } from '@aws-amplify/auth';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -97,7 +97,7 @@ export const AdminDashboard: React.FC = () => {
       {/* TAB 0: OVERVIEW */}
       {tabIndex === 0 && (
         <>
-          {/* Stats Cards Layout using Stack (Responsive Flexbox) */}
+          {/* Stats Cards Layout using Box (Responsive Flexbox) */}
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
              {/* Card 1 */}
              <Paper sx={{ p: 2, flex: '1 1 300px', height: 140, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
