@@ -11,7 +11,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
   Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
   Typography, Alert, TextField, FormControl, InputLabel, Select, MenuItem,
-  Button, Switch, FormControlLabel, IconButton
+  Button, Switch, FormControlLabel, IconButton, Tooltip
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import PersonIcon from '@mui/icons-material/Person';
@@ -22,10 +22,12 @@ import StopCircleIcon from '@mui/icons-material/StopCircle';
 import DashboardIcon from '@mui/icons-material/Dashboard'; // Icon for admin
 import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
 import ShareIcon from '@mui/icons-material/Share'; // Icon for share
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'; // Icon for library
 import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
-import { AdminDashboard } from './AdminDashboard'; // Import the new component
+import { AdminDashboard } from './AdminDashboard';
+import { PromptLibrary } from './PromptLibrary';
 
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -37,7 +39,7 @@ Amplify.configure(awsExports);
 const drawerWidth = 280;
 
 // --- CONFIG ---
-// Copy your admin emails here to control button visibility
+// REPLACE WITH YOUR ACTUAL EMAIL ADDRESSES
 const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"]; 
 
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
@@ -66,9 +68,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const chatEndRef = useRef<null | HTMLDivElement>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string>('');
-  
-  // --- NEW: View State (chat or admin) ---
   const [currentView, setCurrentView] = useState<'chat' | 'admin'>('chat');
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false); // State for Library Dialog
 
   const lightTheme = createTheme({ palette: { mode: 'light' } });
   const darkTheme = createTheme({ palette: { mode: 'dark' } });
@@ -102,7 +103,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // ... (Keep handleSelectConversation, handleNewConversation, handleRenameConversation, handleCopyText, handleStopGenerating EXACTLY as they were) ...
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id); setMessages([]); setError(''); setIsLoading(true);
     try {
@@ -114,9 +114,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       setMessages(sortedMessages.map((msg: any) => ({ sender: msg.sender, text: msg.text })));
     } catch (err: any) { setError(`Failed to load messages: ${err.message}`); } finally { setIsLoading(false); }
   };
+
   const handleNewConversation = () => { setActiveConversationId(null); setMessages([]); setPrompt(''); setError(''); };
 
-  // --- FIX: REMOVE THROWING ERROR ON SUCCESS ---
   const handleDeleteConversation = async (id: string) => {
     setError('');
     try {
@@ -125,11 +125,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.detail || 'Failed to delete conversation'); }
       setConversations(prev => prev.filter(conv => conv.id !== id));
       if (activeConversationId === id) { handleNewConversation(); }
-      // Removed: throw new Error("Conversation deleted successfully."); 
-      // The function now returns successfully (void), which the Sidebar interprets as success.
     } catch (error) { throw error; }
   };
-  // ---------------------------------------------
 
   const handleRenameConversation = async (id: string, newTitle: string): Promise<Conversation> => {
     setError('');
@@ -142,9 +139,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       return updatedConversation;
     } catch (error) { setError(`Rename failed: ${(error as Error).message}`); throw error; }
   };
+
   const handleCopyText = async (textToCopy: string) => {
     try { await navigator.clipboard.writeText(textToCopy); toast.success('Copied to clipboard!'); } catch (err) { console.error("Failed to copy text: ", err); toast.error('Failed to copy text.'); }
   };
+
   const handleStopGenerating = () => {
     if (abortController) { abortController.abort(); setAbortController(null); setIsLoading(false); setMessages(prev => { const lastMessage = prev[prev.length - 1]; if (lastMessage && lastMessage.sender === 'ai' && lastMessage.text === '') { return prev.slice(0, -1); } return prev; }); toast.error("Generation stopped by user."); }
   };
@@ -158,23 +157,21 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
-      if (!res.ok) {
-        throw new Error("Failed to generate share link");
-      }
+      if (!res.ok) throw new Error("Failed to generate share link");
       
       const data = await res.json();
-      
-      if (!data.shareId) {
-         throw new Error("Server did not return a share ID");
-      }
+      if (!data.shareId) throw new Error("Server did not return a share ID");
 
       const fullUrl = `${window.location.origin}/share/${data.shareId}`;
       await navigator.clipboard.writeText(fullUrl);
       toast.success("Link copied to clipboard!");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to generate share link.");
-    }
+    } catch (err) { console.error(err); toast.error("Failed to generate share link."); }
+  };
+
+  // --- Handle Prompt Selection from Library ---
+  const handleSelectPrompt = (newPrompt: string) => {
+    setPrompt(newPrompt);
+    setIsLibraryOpen(false);
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -208,14 +205,19 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const userEmail = user?.signInDetails?.loginId || user?.attributes?.email;
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
 
-  // --- JSX Rendering ---
   return (
     <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
       <Toaster position="top-center" reverseOrder={false} toastOptions={{ duration: 3000, style: { background: darkMode ? '#333' : '#fff', color: darkMode ? '#fff' : '#333' } }} />
       <CssBaseline />
-      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      
+      {/* --- Prompt Library Dialog --- */}
+      <PromptLibrary 
+        open={isLibraryOpen} 
+        onClose={() => setIsLibraryOpen(false)} 
+        onSelectPrompt={handleSelectPrompt} 
+      />
 
-        {/* Only show Sidebar in Chat view */}
+      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         {currentView === 'chat' && (
           <ConversationSidebar
             conversations={conversations} onSelectConversation={handleSelectConversation} onNewConversation={handleNewConversation} onDeleteConversation={handleDeleteConversation} onRenameConversation={handleRenameConversation} activeConversationId={activeConversationId}
@@ -228,7 +230,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, mb: 2 }}>
              {/* Logo, Title, and Tagline */}
              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <img src="/markitome-logo.png" alt="Markitome Logo" style={{ width: '40px', height: '40px', borderRadius: '4px' }} />
+                <img 
+                  src="/markitome-logo.png" 
+                  alt="Markitome Logo" 
+                  style={{ width: '100px', height: 'auto', borderRadius: '4px' }} 
+                />
                 <Box>
                   <Typography variant="h5" component="h1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>Markitome AI</Typography>
                   <Typography variant="body2" sx={{ color: 'text.secondary' }}>Your Intelligent Marketing Assistant</Typography>
@@ -263,13 +269,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             </Box>
           </Box>
 
-          {/* --- CONDITIONAL RENDERING --- */}
           {currentView === 'admin' ? (
             <AdminDashboard /> 
           ) : (
-            // ... Existing Chat UI ...
             <>
                <TextField label="System Prompt (Optional)" variant="outlined" fullWidth size="small" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} sx={{ mb: 2, flexShrink: 0 }} />
+               
                <Paper elevation={3} sx={{ flexGrow: 1, overflowY: 'auto', p: 2, mb: 2 }}>
                   <List>
                     {messages.map((msg, index) => (
@@ -285,16 +290,28 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   </List>
                </Paper>
                {error && <Alert severity="error" sx={{ mb: 2, flexShrink: 0 }}>{error}</Alert>}
+               
                <Box component="form" onSubmit={handleSubmit} sx={{ flexShrink: 0 }}>
                   <TextField label="Type your message..." variant="outlined" fullWidth value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} multiline rows={2} maxRows={6} />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <FormControl variant="outlined" sx={{ minWidth: 150 }} size="small">
                         <InputLabel>Model</InputLabel>
                         <Select value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} label="Model">
                           <MenuItem value="gpt-4o">GPT-4o</MenuItem><MenuItem value="gpt-4">GPT-4</MenuItem><MenuItem value="gemini-pro">Gemini Pro</MenuItem><MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
                         </Select>
                       </FormControl>
+
+                      {/* --- Prompt Library Button --- */}
+                      <Tooltip title="Browse Prompt Library">
+                        <IconButton 
+                          onClick={() => setIsLibraryOpen(true)} 
+                          color="primary"
+                          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+                        >
+                          <LibraryBooksIcon />
+                        </IconButton>
+                      </Tooltip>
                     </Box>
                     {isLoading ? (<Button variant="outlined" color="warning" onClick={handleStopGenerating} startIcon={<StopCircleIcon />}>Stop Generating</Button>) : (<Button type="submit" variant="contained" endIcon={<SendIcon />} disabled={!prompt.trim()}>Send</Button>)}
                   </Box>
