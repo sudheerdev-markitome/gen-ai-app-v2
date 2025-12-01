@@ -220,14 +220,41 @@ async def share_conv(conversation_id: str, current_user: dict = Depends(get_curr
     except Exception as e: raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/share/{share_id}")
-async def get_shared(share_id: str):
+async def get_shared_conversation(share_id: str):
     try:
-        resp = shared_links_table.get_item(Key={'shareId': share_id})
-        if not resp.get('Item'): raise HTTPException(status_code=404, detail="Link not found")
-        cid = resp['Item']['conversationId']
-        msgs = chat_history_table.query(KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(cid))['Items']
-        return {"conversationId": cid, "messages": sorted([{"text": i['text'], "sender": i['sender']} for i in msgs], key=lambda x: x['timestamp'])}
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+        response = shared_links_table.get_item(Key={'shareId': share_id})
+        link_data = response.get('Item')
+        
+        if not link_data:
+            raise HTTPException(status_code=404, detail="Shared link not found or expired")
+        
+        conversation_id = link_data['conversationId']
+        
+        # Fetch messages
+        response = chat_history_table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('conversationId').eq(conversation_id)
+        )
+        items = response.get('Items', [])
+        
+        # --- FIX: Safer Sort and Data Extraction ---
+        # Use .get() to prevent crashes if a field is missing
+        items.sort(key=lambda x: x.get('timestamp', ''))
+        
+        public_items = [
+            {
+                "text": item.get('text', ''), 
+                "sender": item.get('sender', 'unknown'), 
+                "timestamp": item.get('timestamp', '')
+            }
+            for item in items
+        ]
+        # -------------------------------------------
+        
+        return {"conversationId": conversation_id, "messages": public_items}
+
+    except Exception as e:
+        print(f"Error fetching shared conversation: {e}")
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 # --- GENERATE (With Tools) ---
 @app.post("/api/generate")
