@@ -24,13 +24,13 @@ import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
 import ShareIcon from '@mui/icons-material/Share'; // Icon for share
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'; // Icon for library
 import MicIcon from '@mui/icons-material/Mic'; // Icon for voice
-import BugReportIcon from '@mui/icons-material/BugReport'; // <-- NEW: Feedback Icon
+import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'; // <-- NEW: Side View Icon
 import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
 import { AdminDashboard } from './AdminDashboard';
 import { PromptLibrary } from './PromptLibrary';
-import { FeedbackDialog } from './FeedbackDialog'; // <-- NEW: Import Feedback Dialog
+import { ArtifactPanel } from './ArtifactPanel'; // <-- NEW: Import Artifact Panel
 
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -79,8 +79,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [systemPrompt, setSystemPrompt] = useState<string>('');
   const [currentView, setCurrentView] = useState<'chat' | 'admin'>('chat');
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false); // <-- NEW: Feedback State
   
+  // --- NEW: Artifact State ---
+  const [activeArtifact, setActiveArtifact] = useState<string | null>(null); 
+  // ---------------------------
+
   // --- Voice Input State ---
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
@@ -118,7 +121,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const handleSelectConversation = async (id: string) => {
-    setActiveConversationId(id); setMessages([]); setError(''); setIsLoading(true);
+    setActiveConversationId(id); 
+    setMessages([]); 
+    setError(''); 
+    setIsLoading(true); 
+    setActiveArtifact(null); // Close artifact panel on switch
     try {
       const token = await getAuthToken();
       const res = await fetch(`${CONVERSATIONS_URL}/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -129,7 +136,13 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err: any) { setError(`Failed to load messages: ${err.message}`); } finally { setIsLoading(false); }
   };
 
-  const handleNewConversation = () => { setActiveConversationId(null); setMessages([]); setPrompt(''); setError(''); };
+  const handleNewConversation = () => { 
+      setActiveConversationId(null); 
+      setMessages([]); 
+      setPrompt(''); 
+      setError(''); 
+      setActiveArtifact(null); // Close artifact panel on new chat
+  };
 
   const handleDeleteConversation = async (id: string) => {
     setError('');
@@ -190,48 +203,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
 
   // --- Handle Voice Input ---
   const handleVoiceInput = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-      return;
-    }
-
+    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; }
     const windowObj = window as unknown as IWindow;
     const SpeechRecognition = windowObj.SpeechRecognition || windowObj.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      toast.error("Browser doesn't support speech recognition.");
-      return;
-    }
-
+    if (!SpeechRecognition) { toast.error("Browser doesn't support speech recognition."); return; }
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => {
-      setIsListening(true);
-      toast.success("Listening...", { id: 'voice-status' });
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      toast.dismiss('voice-status');
-    };
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setPrompt((prev) => prev + (prev ? ' ' : '') + transcript);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
-      toast.error(`Speech error: ${event.error}`);
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
+    recognition.continuous = false; recognition.interimResults = false; recognition.lang = 'en-US';
+    recognition.onstart = () => { setIsListening(true); toast.success("Listening...", { id: 'voice-status' }); };
+    recognition.onend = () => { setIsListening(false); toast.dismiss('voice-status'); };
+    recognition.onresult = (event: any) => { const transcript = event.results[0][0].transcript; setPrompt((prev) => prev + (prev ? ' ' : '') + transcript); };
+    recognition.onerror = (event: any) => { console.error("Speech recognition error", event.error); toast.error(`Speech error: ${event.error}`); setIsListening(false); };
+    recognitionRef.current = recognition; recognition.start();
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -262,6 +244,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   // --- Calculate if User is Admin ---
+  // Check signInDetails first (Amplify v6 standard), fallback to attributes
   const userEmail = user?.signInDetails?.loginId || user?.attributes?.email;
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
 
@@ -270,17 +253,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       <Toaster position="top-center" reverseOrder={false} toastOptions={{ duration: 3000, style: { background: darkMode ? '#333' : '#fff', color: darkMode ? '#fff' : '#333' } }} />
       <CssBaseline />
       
-      {/* --- Dialogs --- */}
+      {/* --- Prompt Library Dialog --- */}
       <PromptLibrary 
         open={isLibraryOpen} 
         onClose={() => setIsLibraryOpen(false)} 
         onSelectPrompt={handleSelectPrompt} 
-      />
-      
-      {/* --- NEW: Feedback Dialog --- */}
-      <FeedbackDialog
-        open={isFeedbackOpen}
-        onClose={() => setIsFeedbackOpen(false)}
       />
 
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -290,11 +267,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           />
         )}
 
-        <Container maxWidth={false} sx={{ display: 'flex', flexDirection: 'column', height: '100%', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: currentView === 'chat' ? `${drawerWidth}px` : 0 }}>
-          
+        <Container
+          maxWidth={false}
+          sx={{ 
+              display: 'flex', flexDirection: 'column', height: '100%', 
+              pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, 
+              ml: currentView === 'chat' ? `${drawerWidth}px` : 0,
+              transition: 'margin 0.3s ease' // Smooth transition when sidebar/artifact panel changes
+          }}
+        >
           {/* Header */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, mb: 2 }}>
-             {/* Logo, Title, and Tagline */}
              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <img 
                   src="/markitome-logo.png" 
@@ -307,20 +290,10 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 </Box>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-               {/* --- Share Button --- */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                {activeConversationId && currentView === 'chat' && (
                   <Button variant="text" startIcon={<ShareIcon />} onClick={handleShareChat} sx={{ mr: 1 }}>Share</Button>
               )}
-              
-              {/* --- NEW: Feedback Button --- */}
-              <Tooltip title="Report Bug / Feedback">
-                <IconButton onClick={() => setIsFeedbackOpen(true)} color="default">
-                  <BugReportIcon />
-                </IconButton>
-              </Tooltip>
-
-              {/* --- ADMIN TOGGLE BUTTON --- */}
               {isAdmin && (
                 <Button 
                   variant={currentView === 'admin' ? 'contained' : 'text'}
@@ -330,7 +303,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   {currentView === 'chat' ? 'Admin' : 'Chat'}
                 </Button>
               )}
-              {/* --------------------------- */}
               <FormControlLabel control={<Switch checked={darkMode} onChange={handleThemeChange} />} label={darkMode ? <Brightness4Icon /> : <Brightness7Icon />} />
               <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
             </Box>
@@ -349,7 +321,23 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                         <Avatar sx={{ bgcolor: msg.sender === 'user' ? 'primary.main' : 'secondary.main', mr: 2 }}>{msg.sender === 'user' ? <PersonIcon /> : <SmartToyIcon />}</Avatar>
                         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                           <ListItemText primary={msg.sender === 'user' ? `You (${userEmail ?? 'User'})` : 'AI'} secondary={<Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word', wordBreak: 'break-word' }}>{msg.sender === 'ai' ? (<ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>{msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}</ReactMarkdown>) : (<span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>)}</Typography>} sx={{ overflowWrap: 'break-word', wordBreak: 'break-word' }} />
-                          {msg.sender === 'ai' && msg.text && !isLoading && (<Box sx={{ alignSelf: 'flex-end', mt: 0.5 }}><IconButton size="small" onClick={() => handleCopyText(msg.text)} aria-label="copy response"><ContentCopyIcon fontSize="inherit" /></IconButton></Box>)}
+                          
+                          {/* --- Action Buttons: Copy & Artifact --- */}
+                          {msg.sender === 'ai' && msg.text && !isLoading && (
+                             <Box sx={{ alignSelf: 'flex-end', mt: 0.5, display: 'flex', gap: 1 }}>
+                               {/* --- NEW: Open Artifact Button --- */}
+                               <Tooltip title="Open in Side View">
+                                   <IconButton size="small" onClick={() => setActiveArtifact(msg.text)}>
+                                       <VerticalSplitIcon fontSize="inherit" />
+                                   </IconButton>
+                               </Tooltip>
+                               {/* --------------------------------- */}
+                               
+                               <IconButton size="small" onClick={() => handleCopyText(msg.text)} aria-label="copy response">
+                                   <ContentCopyIcon fontSize="inherit" />
+                               </IconButton>
+                             </Box>
+                          )}
                         </Box>
                       </ListItem>
                     ))}
@@ -369,7 +357,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                         </Select>
                       </FormControl>
 
-                      {/* --- Prompt Library Button --- */}
                       <Tooltip title="Browse Prompt Library">
                         <IconButton 
                           onClick={() => setIsLibraryOpen(true)} 
@@ -380,7 +367,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                         </IconButton>
                       </Tooltip>
 
-                      {/* --- Voice Input Button --- */}
                       <Tooltip title={isListening ? "Listening..." : "Speak Input"}>
                         <IconButton 
                           onClick={handleVoiceInput} 
@@ -397,6 +383,15 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             </>
           )}
         </Container>
+
+        {/* --- NEW: Artifact Panel Component --- */}
+        <ArtifactPanel 
+            content={activeArtifact || ''} 
+            isOpen={!!activeArtifact} 
+            onClose={() => setActiveArtifact(null)} 
+            darkMode={darkMode} 
+        />
+
       </Box>
     </ThemeProvider>
   );
