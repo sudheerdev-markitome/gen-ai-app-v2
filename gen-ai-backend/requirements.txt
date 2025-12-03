@@ -53,3 +53,6 @@ uritemplate==4.2.0
 urllib3==2.5.0
 uvicorn==0.37.0
 sentry-sdk[fastapi]
+deepeval
+pytest
+requests
