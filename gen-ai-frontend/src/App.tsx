@@ -111,6 +111,15 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       try {
         const token = await getAuthToken();
         const res = await fetch(CONVERSATIONS_URL, { headers: { 'Authorization': `Bearer ${token}` } });
+        
+        // --- SAFE JSON PARSING FIX ---
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+           // This means we got HTML (like a 502 Bad Gateway page) instead of JSON
+           throw new Error(`Server returned non-JSON response (Status: ${res.status}). Backend might be down.`);
+        }
+        // -----------------------------
+
         if (!res.ok) { const errorData = await res.json(); throw new Error(errorData.detail || "Failed to fetch conversations"); }
         const data = await res.json();
         setConversations(data.map((item: any) => ({
@@ -129,6 +138,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     try {
       const token = await getAuthToken();
       const res = await fetch(`${CONVERSATIONS_URL}/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+         throw new Error(`Server returned non-JSON response (Status: ${res.status}).`);
+      }
+
       if (!res.ok) { const errorData = await res.json(); throw new Error(errorData.detail || "Failed to fetch messages"); }
       const data = await res.json();
       const sortedMessages = data.sort((a: any, b: any) => a.timestamp.localeCompare(b.timestamp));
@@ -162,7 +177,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   const handleCopyText = async (textToCopy: string) => {
-    try { await navigator.clipboard.writeText(textToCopy); toast.success('Copied to clipboard!'); } catch (err) { toast.error('Failed to copy text.'); }
+    try { await navigator.clipboard.writeText(textToCopy); toast.success('Copied to clipboard!'); } catch (err) { console.error("Failed to copy text: ", err); toast.error('Failed to copy text.'); }
   };
 
   const handleStopGenerating = () => {
@@ -173,14 +188,20 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     if (!activeConversationId) return;
     try {
       const token = await getAuthToken();
-      const res = await fetch(`/api/conversations/${activeConversationId}/share`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`/api/conversations/${activeConversationId}/share`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
       if (!res.ok) throw new Error("Failed to generate share link");
+      
       const data = await res.json();
       if (!data.shareId) throw new Error("Server did not return a share ID");
+
       const fullUrl = `${window.location.origin}/share/${data.shareId}`;
       await navigator.clipboard.writeText(fullUrl);
       toast.success("Link copied to clipboard!");
-    } catch (err) { toast.error("Failed to generate share link."); }
+    } catch (err) { console.error(err); toast.error("Failed to generate share link."); }
   };
 
   // --- Handlers for Input ---
@@ -256,6 +277,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         });
 
         if (controller.signal.aborted) return;
+        
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+           throw new Error(`Server error: Received non-JSON response (${res.status}).`);
+        }
+
         if (!res.ok) { 
             let errorDetail = `Server error: ${res.status}`; 
             try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {} 
