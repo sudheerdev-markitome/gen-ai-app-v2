@@ -11,7 +11,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
   Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
   Typography, Alert, TextField, FormControl, InputLabel, Select, MenuItem,
-  Button, Switch, FormControlLabel, IconButton, Tooltip
+  Button, Switch, FormControlLabel, IconButton, Tooltip, Chip
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import PersonIcon from '@mui/icons-material/Person';
@@ -19,18 +19,21 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
-import DashboardIcon from '@mui/icons-material/Dashboard'; // Icon for admin
-import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
-import ShareIcon from '@mui/icons-material/Share'; // Icon for share
-import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'; // Icon for library
-import MicIcon from '@mui/icons-material/Mic'; // Icon for voice
-import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'; // <-- NEW: Side View Icon
-import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
+import DashboardIcon from '@mui/icons-material/Dashboard'; 
+import ChatIcon from '@mui/icons-material/Chat'; 
+import ShareIcon from '@mui/icons-material/Share'; 
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
+import MicIcon from '@mui/icons-material/Mic';
+import VerticalSplitIcon from '@mui/icons-material/VerticalSplit';
+import BugReportIcon from '@mui/icons-material/BugReport';
+import AttachFileIcon from '@mui/icons-material/AttachFile'; // <-- NEW: Attach Icon
+import { ContentCopy as ContentCopyIcon, Close as CloseIcon, Image as ImageIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
 import { AdminDashboard } from './AdminDashboard';
 import { PromptLibrary } from './PromptLibrary';
-import { ArtifactPanel } from './ArtifactPanel'; // <-- NEW: Import Artifact Panel
+import { ArtifactPanel } from './ArtifactPanel';
+import { FeedbackDialog } from './FeedbackDialog';
 
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -40,16 +43,12 @@ import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/materi
 Amplify.configure(awsExports);
 
 const drawerWidth = 280;
-
-// --- CONFIG ---
-// Copy your admin emails here to control button visibility
 const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"]; 
 
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o';
 interface Message { sender: 'user' | 'ai'; text: string; }
 interface Conversation { id: string; title: string; }
 
-// Add Web Speech API type definition
 interface IWindow extends Window {
   webkitSpeechRecognition: any;
   SpeechRecognition: any;
@@ -65,7 +64,6 @@ const CodeBlock = ({ node, inline, className, children, darkMode, ...props }: an
 };
 
 function App({ signOut, user }: { signOut?: () => void; user?: any }) {
-  // --- State Management ---
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -78,15 +76,20 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string>('');
   const [currentView, setCurrentView] = useState<'chat' | 'admin'>('chat');
-  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   
-  // --- NEW: Artifact State ---
+  // Dialogs & UI State
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false); 
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [activeArtifact, setActiveArtifact] = useState<string | null>(null); 
-  // ---------------------------
-
-  // --- Voice Input State ---
   const [isListening, setIsListening] = useState(false);
+
+  // --- Attachments State ---
+  const [image, setImage] = useState<string | null>(null); // Base64 Image
+  const [selectedFile, setSelectedFile] = useState<File | null>(null); // Document File
+
   const recognitionRef = useRef<any>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for document input
 
   const lightTheme = createTheme({ palette: { mode: 'light' } });
   const darkTheme = createTheme({ palette: { mode: 'dark' } });
@@ -122,10 +125,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
 
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id); 
-    setMessages([]); 
-    setError(''); 
-    setIsLoading(true); 
-    setActiveArtifact(null); // Close artifact panel on switch
+    setMessages([]); setError(''); setIsLoading(true); setActiveArtifact(null); setImage(null); setSelectedFile(null);
     try {
       const token = await getAuthToken();
       const res = await fetch(`${CONVERSATIONS_URL}/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -137,26 +137,20 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   };
 
   const handleNewConversation = () => { 
-      setActiveConversationId(null); 
-      setMessages([]); 
-      setPrompt(''); 
-      setError(''); 
-      setActiveArtifact(null); // Close artifact panel on new chat
+      setActiveConversationId(null); setMessages([]); setPrompt(''); setError(''); setActiveArtifact(null); setImage(null); setSelectedFile(null);
   };
 
   const handleDeleteConversation = async (id: string) => {
-    setError('');
     try {
       const token = await getAuthToken();
       const response = await fetch(`${CONVERSATIONS_URL}/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
       if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.detail || 'Failed to delete conversation'); }
       setConversations(prev => prev.filter(conv => conv.id !== id));
       if (activeConversationId === id) { handleNewConversation(); }
-    } catch (error) { throw error; }
+    } catch (error: any) { toast.error(`Delete failed: ${error.message}`); }
   };
 
   const handleRenameConversation = async (id: string, newTitle: string): Promise<Conversation> => {
-    setError('');
     try {
       const token = await getAuthToken();
       const response = await fetch(`${CONVERSATIONS_URL}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ new_title: newTitle }) });
@@ -164,11 +158,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       const updatedConversation = await response.json();
       setConversations(prev => prev.map(conv => conv.id === id ? { ...conv, title: updatedConversation.title } : conv));
       return updatedConversation;
-    } catch (error) { setError(`Rename failed: ${(error as Error).message}`); throw error; }
+    } catch (error: any) { toast.error(`Rename failed: ${error.message}`); throw error; }
   };
 
   const handleCopyText = async (textToCopy: string) => {
-    try { await navigator.clipboard.writeText(textToCopy); toast.success('Copied to clipboard!'); } catch (err) { console.error("Failed to copy text: ", err); toast.error('Failed to copy text.'); }
+    try { await navigator.clipboard.writeText(textToCopy); toast.success('Copied to clipboard!'); } catch (err) { toast.error('Failed to copy text.'); }
   };
 
   const handleStopGenerating = () => {
@@ -179,29 +173,19 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     if (!activeConversationId) return;
     try {
       const token = await getAuthToken();
-      const res = await fetch(`/api/conversations/${activeConversationId}/share`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
+      const res = await fetch(`/api/conversations/${activeConversationId}/share`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed to generate share link");
-      
       const data = await res.json();
       if (!data.shareId) throw new Error("Server did not return a share ID");
-
       const fullUrl = `${window.location.origin}/share/${data.shareId}`;
       await navigator.clipboard.writeText(fullUrl);
       toast.success("Link copied to clipboard!");
-    } catch (err) { console.error(err); toast.error("Failed to generate share link."); }
+    } catch (err) { toast.error("Failed to generate share link."); }
   };
 
-  // --- Handle Prompt Selection from Library ---
-  const handleSelectPrompt = (newPrompt: string) => {
-    setPrompt(newPrompt);
-    setIsLibraryOpen(false);
-  };
+  // --- Handlers for Input ---
+  const handleSelectPrompt = (newPrompt: string) => { setPrompt(newPrompt); setIsLibraryOpen(false); };
 
-  // --- Handle Voice Input ---
   const handleVoiceInput = () => {
     if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return; }
     const windowObj = window as unknown as IWindow;
@@ -209,56 +193,105 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     if (!SpeechRecognition) { toast.error("Browser doesn't support speech recognition."); return; }
     const recognition = new SpeechRecognition();
     recognition.continuous = false; recognition.interimResults = false; recognition.lang = 'en-US';
-    recognition.onstart = () => { setIsListening(true); toast.success("Listening...", { id: 'voice-status' }); };
-    recognition.onend = () => { setIsListening(false); toast.dismiss('voice-status'); };
+    recognition.onstart = () => { setIsListening(true); toast.success("Listening..."); };
+    recognition.onend = () => { setIsListening(false); };
     recognition.onresult = (event: any) => { const transcript = event.results[0][0].transcript; setPrompt((prev) => prev + (prev ? ' ' : '') + transcript); };
-    recognition.onerror = (event: any) => { console.error("Speech recognition error", event.error); toast.error(`Speech error: ${event.error}`); setIsListening(false); };
+    recognition.onerror = (event: any) => { console.error("Speech error", event.error); setIsListening(false); };
     recognitionRef.current = recognition; recognition.start();
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!prompt.trim() || isLoading) return;
-    const userMessage: Message = { sender: 'user', text: prompt };
-    const currentPrompt = prompt;
-    const currentHistory = [...messages];
-    setMessages(prev => [...prev, userMessage]);
-    setPrompt(''); setIsLoading(true); setError('');
-    const controller = new AbortController(); setAbortController(controller);
-    try {
-        const token = await getAuthToken();
-        const historyForApi = currentHistory.map(msg => ({ role: msg.sender === 'user' ? 'user' : 'model', content: msg.text }));
-        const res = await fetch(GENERATE_URL, {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ prompt: currentPrompt, model, conversationId: activeConversationId, history: historyForApi, systemPrompt: systemPrompt }),
-            signal: controller.signal
-        });
-        if (controller.signal.aborted) return;
-        if (!res.ok) { let errorDetail = `Server error: ${res.status}`; try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {} throw new Error(errorDetail); }
-        const data = await res.json();
-        if (controller.signal.aborted) return;
-        const aiMessage: Message = { sender: 'ai', text: data.text };
-        setMessages(prev => [...prev, aiMessage]);
-        if (!activeConversationId && data.conversationId) { const newConvId = data.conversationId; setActiveConversationId(newConvId); setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]); }
-    } catch (err: any) { if (err.name === 'AbortError') { console.log('Fetch aborted'); } else { setError(err.message); setMessages(prev => prev.slice(0, -1)); } } finally { setIsLoading(false); setAbortController(null); }
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => { setImage(reader.result as string); };
+      reader.readAsDataURL(file);
+    }
   };
 
-  // --- Calculate if User is Admin ---
-  // Check signInDetails first (Amplify v6 standard), fallback to attributes
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) setSelectedFile(file);
+  };
+
+  // --- Main Submit Handler (FormData) ---
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if ((!prompt.trim() && !image && !selectedFile) || isLoading) return;
+
+    let displayMsg = prompt;
+    if (selectedFile) displayMsg += `\n[Attached: ${selectedFile.name}]`;
+    if (image) displayMsg += `\n[Image Attached]`;
+
+    const userMessage: Message = { sender: 'user', text: displayMsg };
+    setMessages(prev => [...prev, userMessage]);
+    setPrompt(''); setIsLoading(true); setError('');
+    
+    // Create FormData for upload
+    const formData = new FormData();
+    formData.append('prompt', prompt);
+    formData.append('model', model);
+    if (activeConversationId) formData.append('conversationId', activeConversationId);
+    if (systemPrompt) formData.append('systemPrompt', systemPrompt);
+    if (image) formData.append('image', image); // Base64 string
+    if (selectedFile) formData.append('file', selectedFile); // Actual file object
+
+    // Clear inputs immediately visually
+    setImage(null);
+    setSelectedFile(null);
+
+    const controller = new AbortController(); setAbortController(controller);
+
+    try {
+        const token = await getAuthToken();
+        const res = await fetch(GENERATE_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+                // Note: Do NOT set Content-Type to multipart/form-data here. 
+                // The browser sets it automatically with the boundary when using FormData.
+            },
+            body: formData,
+            signal: controller.signal
+        });
+
+        if (controller.signal.aborted) return;
+        if (!res.ok) { 
+            let errorDetail = `Server error: ${res.status}`; 
+            try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {} 
+            throw new Error(errorDetail); 
+        }
+
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+
+        const aiMessage: Message = { sender: 'ai', text: data.text };
+        setMessages(prev => [...prev, aiMessage]);
+
+        if (!activeConversationId && data.conversationId) { 
+            const newConvId = data.conversationId; 
+            setActiveConversationId(newConvId); 
+            setConversations(prev => [{ id: newConvId, title: (prompt || "New Chat").substring(0, 50) }, ...prev]); 
+        }
+    } catch (err: any) { 
+        if (err.name !== 'AbortError') { 
+            setError(err.message); 
+            setMessages(prev => prev.slice(0, -1)); 
+        } 
+    } finally { 
+        setIsLoading(false); setAbortController(null); 
+    }
+  };
+
   const userEmail = user?.signInDetails?.loginId || user?.attributes?.email;
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
 
   return (
     <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
-      <Toaster position="top-center" reverseOrder={false} toastOptions={{ duration: 3000, style: { background: darkMode ? '#333' : '#fff', color: darkMode ? '#fff' : '#333' } }} />
+      <Toaster position="top-center" reverseOrder={false} />
       <CssBaseline />
-      
-      {/* --- Prompt Library Dialog --- */}
-      <PromptLibrary 
-        open={isLibraryOpen} 
-        onClose={() => setIsLibraryOpen(false)} 
-        onSelectPrompt={handleSelectPrompt} 
-      />
+      <PromptLibrary open={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} onSelectPrompt={handleSelectPrompt} />
+      <FeedbackDialog open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
 
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         {currentView === 'chat' && (
@@ -267,50 +300,26 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           />
         )}
 
-        <Container
-          maxWidth={false}
-          sx={{ 
-              display: 'flex', flexDirection: 'column', height: '100%', 
-              pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, 
-              ml: currentView === 'chat' ? `${drawerWidth}px` : 0,
-              transition: 'margin 0.3s ease' // Smooth transition when sidebar/artifact panel changes
-          }}
-        >
-          {/* Header */}
+        <Container maxWidth={false} sx={{ display: 'flex', flexDirection: 'column', height: '100%', pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1, ml: currentView === 'chat' ? `${drawerWidth}px` : 0, transition: 'margin 0.3s ease' }}>
+          
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, mb: 2 }}>
              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <img 
-                  src="/markitome-logo.png" 
-                  alt="Markitome Logo" 
-                  style={{ width: '100px', height: 'auto', borderRadius: '4px' }} 
-                />
+                <img src="/markitome-logo.png" alt="Logo" style={{ width: '100px', height: 'auto', borderRadius: '4px' }} />
                 <Box>
                   <Typography variant="h5" component="h1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>Markitome AI</Typography>
                   <Typography variant="body2" sx={{ color: 'text.secondary' }}>Your Intelligent Marketing Assistant</Typography>
                 </Box>
             </Box>
-
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-               {activeConversationId && currentView === 'chat' && (
-                  <Button variant="text" startIcon={<ShareIcon />} onClick={handleShareChat} sx={{ mr: 1 }}>Share</Button>
-              )}
-              {isAdmin && (
-                <Button 
-                  variant={currentView === 'admin' ? 'contained' : 'text'}
-                  onClick={() => setCurrentView(prev => prev === 'chat' ? 'admin' : 'chat')}
-                  startIcon={currentView === 'chat' ? <DashboardIcon /> : <ChatIcon />}
-                >
-                  {currentView === 'chat' ? 'Admin' : 'Chat'}
-                </Button>
-              )}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+               {activeConversationId && currentView === 'chat' && (<Button variant="text" startIcon={<ShareIcon />} onClick={handleShareChat} sx={{ mr: 1 }}>Share</Button>)}
+               <Tooltip title="Report Bug / Feedback"><IconButton onClick={() => setIsFeedbackOpen(true)} color="default"><BugReportIcon /></IconButton></Tooltip>
+               {isAdmin && (<Button variant={currentView === 'admin' ? 'contained' : 'text'} onClick={() => setCurrentView(prev => prev === 'chat' ? 'admin' : 'chat')} startIcon={currentView === 'chat' ? <DashboardIcon /> : <ChatIcon />}>{currentView === 'chat' ? 'Admin' : 'Chat'}</Button>)}
               <FormControlLabel control={<Switch checked={darkMode} onChange={handleThemeChange} />} label={darkMode ? <Brightness4Icon /> : <Brightness7Icon />} />
               <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
             </Box>
           </Box>
 
-          {currentView === 'admin' ? (
-            <AdminDashboard /> 
-          ) : (
+          {currentView === 'admin' ? ( <AdminDashboard /> ) : (
             <>
                <TextField label="System Prompt (Optional)" variant="outlined" fullWidth size="small" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} sx={{ mb: 2, flexShrink: 0 }} />
                
@@ -320,22 +329,16 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                       <ListItem key={index} sx={{ alignItems: 'flex-start' }}>
                         <Avatar sx={{ bgcolor: msg.sender === 'user' ? 'primary.main' : 'secondary.main', mr: 2 }}>{msg.sender === 'user' ? <PersonIcon /> : <SmartToyIcon />}</Avatar>
                         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                          <ListItemText primary={msg.sender === 'user' ? `You (${userEmail ?? 'User'})` : 'AI'} secondary={<Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word', wordBreak: 'break-word' }}>{msg.sender === 'ai' ? (<ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>{msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}</ReactMarkdown>) : (<span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>)}</Typography>} sx={{ overflowWrap: 'break-word', wordBreak: 'break-word' }} />
-                          
-                          {/* --- Action Buttons: Copy & Artifact --- */}
+                          <ListItemText primary={msg.sender === 'user' ? `You (${userEmail ?? 'User'})` : 'AI'} secondary={
+                              <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                {msg.sender === 'ai' ? (<ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>{msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}</ReactMarkdown>) : (<span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>)}
+                              </Typography>
+                            } 
+                            sx={{ overflowWrap: 'break-word', wordBreak: 'break-word' }} />
                           {msg.sender === 'ai' && msg.text && !isLoading && (
                              <Box sx={{ alignSelf: 'flex-end', mt: 0.5, display: 'flex', gap: 1 }}>
-                               {/* --- NEW: Open Artifact Button --- */}
-                               <Tooltip title="Open in Side View">
-                                   <IconButton size="small" onClick={() => setActiveArtifact(msg.text)}>
-                                       <VerticalSplitIcon fontSize="inherit" />
-                                   </IconButton>
-                               </Tooltip>
-                               {/* --------------------------------- */}
-                               
-                               <IconButton size="small" onClick={() => handleCopyText(msg.text)} aria-label="copy response">
-                                   <ContentCopyIcon fontSize="inherit" />
-                               </IconButton>
+                               <Tooltip title="Open in Side View"><IconButton size="small" onClick={() => setActiveArtifact(msg.text)}><VerticalSplitIcon fontSize="inherit" /></IconButton></Tooltip>
+                               <IconButton size="small" onClick={() => handleCopyText(msg.text)} aria-label="copy response"><ContentCopyIcon fontSize="inherit" /></IconButton>
                              </Box>
                           )}
                         </Box>
@@ -347,54 +350,55 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                {error && <Alert severity="error" sx={{ mb: 2, flexShrink: 0 }}>{error}</Alert>}
                
                <Box component="form" onSubmit={handleSubmit} sx={{ flexShrink: 0 }}>
+                  
+                  {/* --- Preview Attachments --- */}
+                  <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
+                    {image && (
+                      <Box sx={{ position: 'relative', width: '60px', height: '60px' }}>
+                        <img src={image} alt="preview" style={{ width: '100%', height: '100%', borderRadius: '8px', objectFit: 'cover' }} />
+                        <IconButton size="small" onClick={() => setImage(null)} sx={{ position: 'absolute', top: -5, right: -5, bgcolor: 'background.paper', border: '1px solid #ccc', p: '2px' }}><CloseIcon fontSize="small" /></IconButton>
+                      </Box>
+                    )}
+                    {selectedFile && (
+                        <Chip 
+                            label={selectedFile.name} 
+                            onDelete={() => setSelectedFile(null)} 
+                            color="primary" 
+                            variant="outlined" 
+                        />
+                    )}
+                  </Box>
+
                   <TextField label="Type your message..." variant="outlined" fullWidth value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} multiline rows={2} maxRows={6} />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <FormControl variant="outlined" sx={{ minWidth: 150 }} size="small">
                         <InputLabel>Model</InputLabel>
                         <Select value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} label="Model">
-                          <MenuItem value="gpt-4o">GPT-4o</MenuItem><MenuItem value="gpt-4">GPT-4</MenuItem><MenuItem value="gemini-pro">Gemini Pro</MenuItem><MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
+                          <MenuItem value="gpt-4o">GPT-4o (Smart)</MenuItem><MenuItem value="gpt-4">GPT-4</MenuItem><MenuItem value="gemini-pro">Gemini Pro</MenuItem><MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
                         </Select>
                       </FormControl>
+                      <Tooltip title="Browse Prompt Library"><IconButton onClick={() => setIsLibraryOpen(true)} color="primary" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}><LibraryBooksIcon /></IconButton></Tooltip>
+                      <Tooltip title={isListening ? "Listening..." : "Speak Input"}><IconButton onClick={handleVoiceInput} color={isListening ? "error" : "primary"} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, animation: isListening ? 'pulse 1.5s infinite' : 'none' }}><MicIcon /></IconButton></Tooltip>
+                      
+                      {/* --- Image Upload --- */}
+                      <input type="file" ref={imageInputRef} onChange={handleImageChange} style={{ display: 'none' }} accept="image/*" />
+                      <Tooltip title="Upload Image"><IconButton onClick={() => imageInputRef.current?.click()} color="default"><ImageIcon /></IconButton></Tooltip>
 
-                      <Tooltip title="Browse Prompt Library">
-                        <IconButton 
-                          onClick={() => setIsLibraryOpen(true)} 
-                          color="primary"
-                          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
-                        >
-                          <LibraryBooksIcon />
-                        </IconButton>
-                      </Tooltip>
-
-                      <Tooltip title={isListening ? "Listening..." : "Speak Input"}>
-                        <IconButton 
-                          onClick={handleVoiceInput} 
-                          color={isListening ? "error" : "primary"}
-                          sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, animation: isListening ? 'pulse 1.5s infinite' : 'none' }}
-                        >
-                          <MicIcon />
-                        </IconButton>
-                      </Tooltip>
+                      {/* --- File Upload --- */}
+                      <input type="file" ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} />
+                      <Tooltip title="Attach File (PDF, TXT, CSV)"><IconButton onClick={() => fileInputRef.current?.click()} color="default"><AttachFileIcon /></IconButton></Tooltip>
                     </Box>
-                    {isLoading ? (<Button variant="outlined" color="warning" onClick={handleStopGenerating} startIcon={<StopCircleIcon />}>Stop Generating</Button>) : (<Button type="submit" variant="contained" endIcon={<SendIcon />} disabled={!prompt.trim()}>Send</Button>)}
+                    {isLoading ? (<Button variant="outlined" color="warning" onClick={handleStopGenerating} startIcon={<StopCircleIcon />}>Stop</Button>) : (<Button type="submit" variant="contained" endIcon={<SendIcon />} disabled={!prompt.trim() && !image && !selectedFile}>Send</Button>)}
                   </Box>
                </Box>
             </>
           )}
         </Container>
-
-        {/* --- NEW: Artifact Panel Component --- */}
-        <ArtifactPanel 
-            content={activeArtifact || ''} 
-            isOpen={!!activeArtifact} 
-            onClose={() => setActiveArtifact(null)} 
-            darkMode={darkMode} 
-        />
-
+        <ArtifactPanel content={activeArtifact || ''} isOpen={!!activeArtifact} onClose={() => setActiveArtifact(null)} darkMode={darkMode} />
       </Box>
     </ThemeProvider>
   );
 }
 
-export default withAuthenticator(App);
+export default withAuthenticator(App, { components: { Header() { return ( <div style={{ textAlign: 'center', padding: '20px' }}> <img src="/markitome-logo.png" alt="Markitome Logo" style={{ width: '120px', height: 'auto', marginBottom: '10px' }} /> <Typography variant="h5" sx={{ fontWeight: 600, color: '#333' }}> Markitome AI </Typography> <Typography variant="body2" sx={{ color: '#666' }}> Your Intelligent Marketing Assistant </Typography> </div> ); } } });
