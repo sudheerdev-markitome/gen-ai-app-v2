@@ -25,12 +25,13 @@ import google.generativeai as genai
 ## CONFIGURATION
 ## -------------------
 load_dotenv()
+print(f"DEBUG: .env loaded. OpenAI Key found: {bool(os.getenv('OPENAI_API_KEY'))}")
 openai.api_key = os.getenv("OPENAI_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 
-client = openai.OpenAI()
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # --- ADMIN ACCESS CONTROL ---
 ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"]
@@ -48,9 +49,14 @@ user_feedback_table = dynamodb.Table('UserFeedback')
 SUPPORTED_MODELS = {
     "gpt-4o": { "type": "openai_assistant", "name": OPENAI_ASSISTANT_ID },
     "gpt-4": { "type": "openai", "name": "gpt-4" }, # Fallback
-    "gemini-pro": { "type": "google", "name": "gemini-1.5-pro-latest" },
-    "gemini-2.5-flash": { "type": "google", "name": "gemini-1.5-flash" }
+    "gemini-pro": { "type": "google", "name": "gemini-pro-latest" },
+    "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" }
 }
+
+# --- VALIDATION ---
+if OPENAI_ASSISTANT_ID and not OPENAI_ASSISTANT_ID.startswith("asst_"):
+    print("WARNING: OPENAI_ASSISTANT_ID in .env does not start with 'asst_'. GPT-4o Assistant calls will fail.")
+
 
 ## -------------------
 ## AGENT TOOLS DEFINITION
@@ -218,6 +224,7 @@ async def generate_text_sync(
     model: str = Form(...),
     conversationId: Optional[str] = Form(None),
     systemPrompt: Optional[str] = Form(None),
+    history: Optional[str] = Form(None), # Added to handle chat history
     image: Optional[str] = Form(None), # Base64 Image
     file: Optional[UploadFile] = File(None), # File Attachment
     current_user: dict = Depends(get_current_user)
@@ -239,22 +246,18 @@ async def generate_text_sync(
     if not model_config: raise HTTPException(status_code=400, detail="Model not supported")
 
     ai_response_text = ""
-    usage_data = {}
-
+    
     try:
+        parsed_history = []
+        if history:
+            try:
+                parsed_history = json.loads(history)
+            except:
+                pass
+
         if model_config["type"] == "openai_assistant":
             # --- OPENAI ASSISTANTS API LOGIC ---
-            
-            # 1. Handle Thread
-            # Check if we have a thread_id for this conversation in DynamoDB
-            # (Requires ConversationThreads table we added earlier, creating it if missing in code logic here is complex, 
-            #  so for simplicity we will rely on creating a new thread if we don't have a way to look it up easily 
-            #  OR better: add the lookup logic here if you have that table. 
-            #  Assuming we create a new thread for simplicity in this snippet unless you have the mapping table ready).
-            
-            # Let's check for the mapping table, if not, create new thread each time (stateless for demo)
-            # Ideally: Lookup thread_id from 'ConversationThreads' table using conv_id
-            
+            # (Thread persistence could be added here later)
             thread = client.beta.threads.create() 
             thread_id = thread.id
 
@@ -267,7 +270,6 @@ async def generate_text_sync(
             message_content = prompt
             attachments = []
             if openai_file_id:
-                # Add file search capability for this file
                 attachments.append({ "file_id": openai_file_id, "tools": [{"type": "file_search"}] })
 
             client.beta.threads.messages.create(
@@ -288,7 +290,6 @@ async def generate_text_sync(
                 time.sleep(1)
                 run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
                 
-                # Handle Tool Calls (e.g. Google Search / Time)
                 if run.status == 'requires_action':
                     tool_outputs = []
                     for tool_call in run.required_action.submit_tool_outputs.tool_calls:
@@ -307,13 +308,47 @@ async def generate_text_sync(
             if run.status == 'completed':
                 messages = client.beta.threads.messages.list(thread_id=thread_id)
                 ai_response_text = messages.data[0].content[0].text.value
-                # Usage stats for Assistants are harder to get per-run in this version, skipping for now
             else:
                 ai_response_text = f"Assistant run failed with status: {run.status}"
 
+        elif model_config["type"] == "google":
+            # --- GOOGLE GEMINI LOGIC ---
+            gemini_model = genai.GenerativeModel(model_config["name"])
+            
+            # Format history for Gemini
+            gemini_history = []
+            for h in parsed_history:
+                # Role mapping: 'user' stays 'user', 'model' stays 'model' (frontend sends 'model' for AI)
+                gemini_history.append({
+                    "role": h.get("role", "user"),
+                    "parts": [h.get("content", "")]
+                })
+            
+            chat = gemini_model.start_chat(history=gemini_history)
+            response = chat.send_message(prompt)
+            ai_response_text = response.text
+
+        elif model_config["type"] == "openai":
+            # --- STANDARD OPENAI (GPT-4) LOGIC ---
+            messages = []
+            if systemPrompt:
+                messages.append({"role": "system", "content": systemPrompt})
+            
+            for h in parsed_history:
+                # Role mapping: 'model' -> 'assistant'
+                role = "assistant" if h.get("role") == "model" else "user"
+                messages.append({"role": role, "content": h.get("content", "")})
+            
+            messages.append({"role": "user", "content": prompt})
+            
+            response = client.chat.completions.create(
+                model=model_config["name"],
+                messages=messages
+            )
+            ai_response_text = response.choices[0].message.content
+
         else:
-            # Fallback for standard models (GPT-4, Gemini) - No file support here in this simple implementation
-             ai_response_text = "File upload is only supported with GPT-4o Assistant model."
+            ai_response_text = "Model type not supported."
 
     except Exception as e:
         print(f"AI Error: {e}")

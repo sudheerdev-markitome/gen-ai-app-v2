@@ -11,13 +11,11 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import {
   Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
   Typography, Alert, TextField, FormControl, InputLabel, Select, MenuItem,
-  Button, Switch, FormControlLabel, IconButton, Tooltip
+  Button, IconButton, Tooltip
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import PersonIcon from '@mui/icons-material/Person';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
-import Brightness4Icon from '@mui/icons-material/Brightness4';
-import Brightness7Icon from '@mui/icons-material/Brightness7';
 import StopCircleIcon from '@mui/icons-material/StopCircle';
 import DashboardIcon from '@mui/icons-material/Dashboard'; // Icon for admin
 import ChatIcon from '@mui/icons-material/Chat'; // Icon for chat
@@ -36,7 +34,6 @@ import { FeedbackDialog } from './FeedbackDialog';
 
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import materialDark from 'react-syntax-highlighter/dist/cjs/styles/prism/material-dark';
 import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/material-light';
 
 Amplify.configure(awsExports);
@@ -57,10 +54,10 @@ interface IWindow extends Window {
   SpeechRecognition: any;
 }
 
-const CodeBlock = ({ node, inline, className, children, darkMode, ...props }: any) => {
+const CodeBlock = ({ node, inline, className, children, ...props }: any) => {
     const match = /language-(\w+)/.exec(className || '');
     return !inline && match ? (
-        <SyntaxHighlighter style={darkMode ? materialDark : materialLight} language={match[1]} PreTag="div" {...props}>
+        <SyntaxHighlighter style={materialLight} language={match[1]} PreTag="div" {...props}>
             {String(children).replace(/\n$/, '')}
         </SyntaxHighlighter>
     ) : ( <code className={className} {...props}>{children}</code> );
@@ -75,7 +72,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [model, setModel] = useState<SupportedModel>('gpt-4o');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
-  const [darkMode, setDarkMode] = useState(false);
   const chatEndRef = useRef<null | HTMLDivElement>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string>('');
@@ -91,8 +87,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const recognitionRef = useRef<any>(null);
 
   const lightTheme = createTheme({ palette: { mode: 'light' } });
-  const darkTheme = createTheme({ palette: { mode: 'dark' } });
-  const handleThemeChange = () => setDarkMode(!darkMode);
 
   const CONVERSATIONS_URL = '/api/conversations';
   const GENERATE_URL = '/api/generate';
@@ -230,9 +224,18 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     try {
         const token = await getAuthToken();
         const historyForApi = currentHistory.map(msg => ({ role: msg.sender === 'user' ? 'user' : 'model', content: msg.text }));
+        
+        const formData = new FormData();
+        formData.append('prompt', currentPrompt);
+        formData.append('model', model);
+        if (activeConversationId) formData.append('conversationId', activeConversationId);
+        if (systemPrompt) formData.append('systemPrompt', systemPrompt);
+        formData.append('history', JSON.stringify(historyForApi));
+
         const res = await fetch(GENERATE_URL, {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ prompt: currentPrompt, model, conversationId: activeConversationId, history: historyForApi, systemPrompt: systemPrompt }),
+            method: 'POST', 
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
             signal: controller.signal
         });
         if (controller.signal.aborted) return;
@@ -250,8 +253,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
 
   return (
-    <ThemeProvider theme={darkMode ? darkTheme : lightTheme}>
-      <Toaster position="top-center" reverseOrder={false} toastOptions={{ duration: 3000, style: { background: darkMode ? '#333' : '#fff', color: darkMode ? '#fff' : '#333' } }} />
+    <ThemeProvider theme={lightTheme}>
+      <Toaster position="top-center" reverseOrder={false} toastOptions={{ duration: 3000, style: { background: '#333', color: '#fff' } }} />
       <CssBaseline />
       
       {/* --- Dialogs --- */}
@@ -290,6 +293,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+               {/* --- Share Button --- */}
                {activeConversationId && currentView === 'chat' && (
                   <Button variant="text" startIcon={<ShareIcon />} onClick={handleShareChat} sx={{ mr: 1 }}>Share</Button>
               )}
@@ -303,7 +307,6 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
 
                {isAdmin && (<Button variant={currentView === 'admin' ? 'contained' : 'text'} onClick={() => setCurrentView(prev => prev === 'chat' ? 'admin' : 'chat')} startIcon={currentView === 'chat' ? <DashboardIcon /> : <ChatIcon />}>{currentView === 'chat' ? 'Admin' : 'Chat'}</Button>)}
               
-              <FormControlLabel control={<Switch checked={darkMode} onChange={handleThemeChange} />} label={darkMode ? <Brightness4Icon /> : <Brightness7Icon />} />
               <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
             </Box>
           </Box>
@@ -322,7 +325,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                           <ListItemText primary={msg.sender === 'user' ? `You (${userEmail ?? 'User'})` : 'AI'} secondary={
                               <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                                {msg.sender === 'ai' ? (<ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={darkMode} /> }}>{msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}</ReactMarkdown>) : (<span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>)}
+                                {msg.sender === 'ai' ? (<ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={false} /> }}>{msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}</ReactMarkdown>) : (<span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>)}
                               </Typography>
                             } 
                             sx={{ overflowWrap: 'break-word', wordBreak: 'break-word' }} />
@@ -371,7 +374,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             content={activeArtifact || ''} 
             isOpen={!!activeArtifact} 
             onClose={() => setActiveArtifact(null)} 
-            darkMode={darkMode} 
+            darkMode={false} 
         />
       </Box>
     </ThemeProvider>
