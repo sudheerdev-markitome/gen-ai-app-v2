@@ -34,10 +34,21 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
+# OpenAI Client
+openai_key = os.getenv("OPENAI_API_KEY")
+client = openai.OpenAI(api_key=openai_key) if openai_key else None
+
+# Anthropic Client (Claude)
+anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+anthropic_client = anthropic.Anthropic(api_key=anthropic_key) if (anthropic_key and "your_anthropic" not in anthropic_key) else None
+
+# Groq Client (Llama 3)
+groq_key = os.getenv("GROQ_API_KEY")
+groq_client = Groq(api_key=groq_key) if (groq_key and "your_groq" not in groq_key) else None
+
+# Mistral Client
+mistral_key = os.getenv("MISTRAL_API_KEY")
+mistral_client = Mistral(api_key=mistral_key) if (mistral_key and "your_mistral" not in mistral_key) else None
 
 # --- ADMIN ACCESS CONTROL ---
 ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"]
@@ -371,6 +382,8 @@ async def generate_text_sync(
 
         elif model_config["type"] == "anthropic":
             # --- ANTHROPIC CLAUDE LOGIC ---
+            if not anthropic_client:
+                raise HTTPException(status_code=400, detail="Anthropic is not configured. Please check your ANTHROPIC_API_KEY.")
             messages = []
             for h in parsed_history:
                 # Anthropic uses 'user' and 'assistant'
@@ -388,6 +401,8 @@ async def generate_text_sync(
 
         elif model_config["type"] == "groq":
             # --- GROQ (LLAMA 3) LOGIC ---
+            if not groq_client:
+                raise HTTPException(status_code=400, detail="Groq is not configured. Please check your GROQ_API_KEY.")
             messages = []
             if systemPrompt:
                 messages.append({"role": "system", "content": systemPrompt})
@@ -404,6 +419,8 @@ async def generate_text_sync(
 
         elif model_config["type"] == "mistral":
             # --- MISTRAL LOGIC ---
+            if not mistral_client:
+                raise HTTPException(status_code=400, detail="Mistral is not configured. Please check your MISTRAL_API_KEY.")
             messages = []
             if systemPrompt:
                 messages.append({"role": "system", "content": systemPrompt})
