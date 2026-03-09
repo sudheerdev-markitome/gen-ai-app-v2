@@ -20,6 +20,9 @@ from jose.exceptions import JOSEError
 
 import openai
 import google.generativeai as genai
+import anthropic
+from groq import Groq
+from mistralai import Mistral
 
 ## -------------------
 ## CONFIGURATION
@@ -32,6 +35,9 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
 
 # --- ADMIN ACCESS CONTROL ---
 ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"]
@@ -51,7 +57,10 @@ SUPPORTED_MODELS = {
     "gpt-4": { "type": "openai", "name": "gpt-4" }, # Fallback
     "gemini-pro": { "type": "google", "name": "gemini-pro-latest" },
     "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" },
-    "dall-e-3": { "type": "image", "name": "dall-e-3" }
+    "dall-e-3": { "type": "image", "name": "dall-e-3" },
+    "claude-3-5-sonnet": { "type": "anthropic", "name": "claude-3-5-sonnet-20241022" },
+    "llama-3-groq": { "type": "groq", "name": "llama3-70b-8192" },
+    "mistral-large": { "type": "mistral", "name": "mistral-large-latest" }
 }
 
 # --- VALIDATION ---
@@ -359,6 +368,55 @@ async def generate_text_sync(
             )
             image_url = response.data[0].url
             ai_response_text = f"![Generated Image]({image_url})"
+
+        elif model_config["type"] == "anthropic":
+            # --- ANTHROPIC CLAUDE LOGIC ---
+            messages = []
+            for h in parsed_history:
+                # Anthropic uses 'user' and 'assistant'
+                role = "assistant" if h.get("role") == "model" else "user"
+                messages.append({"role": role, "content": h.get("content", "")})
+            messages.append({"role": "user", "content": prompt})
+
+            anthropic_resp = anthropic_client.messages.create(
+                model=model_config["name"],
+                max_tokens=4096,
+                system=systemPrompt or "You are a helpful assistant.",
+                messages=messages
+            )
+            ai_response_text = anthropic_resp.content[0].text
+
+        elif model_config["type"] == "groq":
+            # --- GROQ (LLAMA 3) LOGIC ---
+            messages = []
+            if systemPrompt:
+                messages.append({"role": "system", "content": systemPrompt})
+            for h in parsed_history:
+                role = "assistant" if h.get("role") == "model" else "user"
+                messages.append({"role": role, "content": h.get("content", "")})
+            messages.append({"role": "user", "content": prompt})
+
+            groq_resp = groq_client.chat.completions.create(
+                model=model_config["name"],
+                messages=messages
+            )
+            ai_response_text = groq_resp.choices[0].message.content
+
+        elif model_config["type"] == "mistral":
+            # --- MISTRAL LOGIC ---
+            messages = []
+            if systemPrompt:
+                messages.append({"role": "system", "content": systemPrompt})
+            for h in parsed_history:
+                role = "assistant" if h.get("role") == "model" else "user"
+                messages.append({"role": role, "content": h.get("content", "")})
+            messages.append({"role": "user", "content": prompt})
+
+            mistral_resp = mistral_client.chat.complete(
+                model=model_config["name"],
+                messages=messages
+            )
+            ai_response_text = mistral_resp.choices[0].message.content
 
         else:
             ai_response_text = "Model type not supported."

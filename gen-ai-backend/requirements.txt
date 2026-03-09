@@ -57,3 +57,6 @@ sentry-sdk[fastapi]
 deepeval
 pytest
 requests
+anthropic
+groq
+mistralai
