@@ -44,7 +44,7 @@ const drawerWidth = 280;
 // REPLACE WITH YOUR ACTUAL EMAIL ADDRESSES
 const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"];
 
-type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o' | 'dall-e-3' | 'claude-3-5-sonnet' | 'llama-3-groq' | 'mistral-large';
+type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o' | 'dall-e-3' | 'claude-3-5-sonnet' | 'llama-4-scout' | 'mistral-large';
 interface Message { sender: 'user' | 'ai'; text: string; }
 interface Conversation { id: string; title: string; }
 
@@ -357,7 +357,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                     <FormControl variant="outlined" sx={{ minWidth: 150 }} size="small">
                       <InputLabel>Model</InputLabel>
                       <Select value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} label="Model">
-                        <MenuItem value="gpt-4o">GPT-4o</MenuItem><MenuItem value="gpt-4">GPT-4</MenuItem><MenuItem value="gemini-pro">Gemini Pro</MenuItem><MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem><MenuItem value="claude-3-5-sonnet">Claude 3.5 Sonnet</MenuItem><MenuItem value="llama-3-groq">Llama 3 (Groq)</MenuItem><MenuItem value="mistral-large">Mistral Large</MenuItem><MenuItem value="dall-e-3">DALL-E 3 (Image)</MenuItem>
+                        <MenuItem value="gpt-4o">GPT-4o</MenuItem><MenuItem value="gpt-4">GPT-4</MenuItem><MenuItem value="gemini-pro">Gemini Pro</MenuItem><MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem><MenuItem value="claude-3-5-sonnet">Claude 3.5 Sonnet</MenuItem><MenuItem value="llama-4-scout">Llama 4 Scout (Groq)</MenuItem><MenuItem value="mistral-large">Mistral Large</MenuItem><MenuItem value="dall-e-3">DALL-E 3 (Image)</MenuItem>
                       </Select>
                     </FormControl>
                     <Tooltip title="Browse Prompt Library"><IconButton onClick={() => setIsLibraryOpen(true)} color="primary" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}><LibraryBooksIcon /></IconButton></Tooltip>
