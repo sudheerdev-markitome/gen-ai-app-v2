@@ -50,7 +50,8 @@ SUPPORTED_MODELS = {
     "gpt-4o": { "type": "openai_assistant", "name": OPENAI_ASSISTANT_ID },
     "gpt-4": { "type": "openai", "name": "gpt-4" }, # Fallback
     "gemini-pro": { "type": "google", "name": "gemini-pro-latest" },
-    "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" }
+    "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" },
+    "dall-e-3": { "type": "image", "name": "dall-e-3" }
 }
 
 # --- VALIDATION ---
@@ -346,6 +347,18 @@ async def generate_text_sync(
                 messages=messages
             )
             ai_response_text = response.choices[0].message.content
+
+        elif model_config["type"] == "image":
+            # --- OPENAI DALL-E IMAGE GENERATION ---
+            response = client.images.generate(
+                model=model_config["name"],
+                prompt=prompt,
+                n=1,
+                size="1024x1024",
+                quality="standard",
+            )
+            image_url = response.data[0].url
+            ai_response_text = f"![Generated Image]({image_url})"
 
         else:
             ai_response_text = "Model type not supported."
