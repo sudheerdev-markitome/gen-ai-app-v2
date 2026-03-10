@@ -19,9 +19,10 @@ import { fetchAuthSession } from '@aws-amplify/auth';
 interface FeedbackDialogProps {
   open: boolean;
   onClose: () => void;
+  isMobile: boolean;
 }
 
-export const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose }) => {
+export const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose, isMobile }) => {
   const [message, setMessage] = useState('');
   const [category, setCategory] = useState('bug');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -58,7 +59,7 @@ export const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ open, onClose })
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" fullScreen={isMobile}>
       <DialogTitle>Submit Feedback / Report Bug</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>

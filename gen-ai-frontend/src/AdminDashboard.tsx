@@ -100,19 +100,37 @@ export const AdminDashboard: React.FC = () => {
           {/* Stats Cards Layout using Box (Responsive Flexbox) */}
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
              {/* Card 1 */}
-             <Paper sx={{ p: 2, flex: '1 1 300px', height: 140, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <Typography color="primary" variant="h6">Total Requests</Typography>
-                <Typography variant="h3">{stats?.total_requests ?? 0}</Typography>
+             <Paper sx={{ 
+                p: 3, flex: '1 1 300px', borderRadius: 4,
+                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.1)',
+                display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)'
+             }}>
+                <Typography color="text.secondary" variant="overline" sx={{ fontWeight: 600, letterSpacing: '0.1em' }}>Total Requests</Typography>
+                <Typography variant="h3" sx={{ fontWeight: 800, color: 'primary.main' }}>{stats?.total_requests ?? 0}</Typography>
              </Paper>
              {/* Card 2 */}
-             <Paper sx={{ p: 2, flex: '1 1 300px', height: 140, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <Typography color="primary" variant="h6">Total Tokens</Typography>
-                <Typography variant="h3">{stats?.total_tokens?.toLocaleString() ?? 0}</Typography>
+             <Paper sx={{ 
+                p: 3, flex: '1 1 300px', borderRadius: 4,
+                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                border: '1px solid rgba(236, 72, 153, 0.1)',
+                display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)'
+             }}>
+                <Typography color="text.secondary" variant="overline" sx={{ fontWeight: 600, letterSpacing: '0.1em' }}>Total Tokens</Typography>
+                <Typography variant="h3" sx={{ fontWeight: 800, color: 'secondary.main' }}>{stats?.total_tokens?.toLocaleString() ?? 0}</Typography>
              </Paper>
              {/* Card 3 */}
-             <Paper sx={{ p: 2, flex: '1 1 300px', height: 140, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <Typography color="primary" variant="h6">Active Users</Typography>
-                <Typography variant="h3">{stats?.active_users_count ?? 0}</Typography>
+             <Paper sx={{ 
+                p: 3, flex: '1 1 300px', borderRadius: 4,
+                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.1)',
+                display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)'
+             }}>
+                <Typography color="text.secondary" variant="overline" sx={{ fontWeight: 600, letterSpacing: '0.1em' }}>Active Users</Typography>
+                <Typography variant="h3" sx={{ fontWeight: 800, color: 'primary.dark' }}>{stats?.active_users_count ?? 0}</Typography>
              </Paper>
           </Box>
 

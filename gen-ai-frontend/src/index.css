@@ -1,68 +1,90 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  background-color: #f8fafc; /* Match theme.ts light background */
+  color: #0f172a;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* Base styles for the app container */
+#root {
+  height: 100vh;
+  width: 100vw;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+/* Scrollbar Styles for Light mode */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message-appear {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Amplify UI Overrides for Light Mode */
+[data-amplify-authenticator] {
+  --amplify-colors-background-primary: #ffffff;
+  --amplify-colors-background-secondary: #f8fafc;
+  --amplify-colors-brand-primary-80: #6366f1;
+  --amplify-colors-brand-primary-90: #4f46e5;
+  --amplify-colors-brand-primary-100: #4338ca;
+  --amplify-colors-font-primary: #0f172a;
+  --amplify-colors-font-secondary: #475569;
+  --amplify-colors-border-primary: rgba(148, 163, 184, 0.2);
+  background-color: #f1f5f9 !important;
+}
+
+[data-amplify-container] {
+  background-color: #f1f5f9 !important;
+}
+
+.amplify-card {
+  background-color: #ffffff !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+}
+
+.amplify-input {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+.amplify-button--primary {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+  border: none !important;
+  color: white !important;
+}
+
+/* MUI List Item Override for better contrast on white */
+.MuiListItemButton-root.Mui-selected {
+  background-color: rgba(99, 102, 241, 0.08) !important;
 }

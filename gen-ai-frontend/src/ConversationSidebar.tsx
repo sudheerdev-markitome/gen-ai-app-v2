@@ -39,9 +39,12 @@ interface ConversationSidebarProps {
   onDeleteConversation: (id: string) => Promise<void>;
   onRenameConversation: (id: string, newTitle: string) => Promise<Conversation>; // Handler for renaming
   activeConversationId: string | null;
+  isMobile: boolean;
+  mobileOpen: boolean;
+  onClose: () => void;
 }
 
-const drawerWidth = 280; // Define the width of the sidebar
+const drawerWidth = 260; 
 
 export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   conversations,
@@ -50,6 +53,9 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   onDeleteConversation,
   onRenameConversation, // Destructure the rename handler
   activeConversationId,
+  isMobile,
+  mobileOpen,
+  onClose,
 }) => {
   // --- State for Delete Dialog ---
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
@@ -125,7 +131,9 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
 
   return (
     <Drawer
-      variant="permanent"
+      variant={isMobile ? 'temporary' : 'permanent'}
+      open={isMobile ? mobileOpen : true}
+      onClose={onClose}
       anchor="left"
       sx={{
         width: drawerWidth,
@@ -134,20 +142,66 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
           width: drawerWidth,
           boxSizing: 'border-box',
           bgcolor: 'background.paper',
+          borderRight: '1px solid rgba(148, 163, 184, 0.1)'
         },
       }}
+      ModalProps={{
+        keepMounted: true, // Better open performance on mobile.
+      }}
     >
+      {/* --- Brand Section --- */}
+      <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <img 
+            src="/markitome-logo.png" 
+            alt="Markitome Logo" 
+            style={{ 
+              height: '32px', 
+              width: 'auto' 
+            }} 
+          />
+          {isMobile && (
+            <IconButton onClick={onClose} size="small" sx={{ color: 'text.secondary' }}>
+              <CloseIcon />
+            </IconButton>
+          )}
+        </Box>
+        <Typography 
+          variant="caption" 
+          sx={{ 
+            color: 'text.secondary', 
+            fontWeight: 500,
+            mt: 0.5,
+            fontSize: '0.7rem',
+            letterSpacing: '0.02em'
+          }}
+        >
+          Your Intelligent Marketing Assistant
+        </Typography>
+      </Box>
+
       {/* --- Top Section: New Chat Button --- */}
-      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Box sx={{ p: 2, pt: 0 }}>
         <Button
-          variant="outlined"
+          variant="contained"
           fullWidth
           startIcon={<AddIcon />}
           onClick={onNewConversation}
+          sx={{
+            py: 1,
+            borderRadius: '10px',
+            textTransform: 'none',
+            fontWeight: 600,
+            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)',
+            '&:hover': {
+              background: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
+              boxShadow: '0 6px 16px rgba(99, 102, 241, 0.4)',
+            }
+          }}
         >
           New Chat
         </Button>
-         {/* Note: The Alert component was removed. Feedback is now handled by toast. */}
       </Box>
 
       {/* --- Conversation History List --- */}
@@ -204,12 +258,29 @@ export const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
               <ListItemButton
                 selected={conv.id === activeConversationId}
                 onClick={() => onSelectConversation(conv.id)}
+                sx={{
+                  mx: 1,
+                  borderRadius: '10px',
+                  mb: 0.5,
+                  transition: 'all 0.2s',
+                  '&.Mui-selected': {
+                    bgcolor: 'rgba(99, 102, 241, 0.1)',
+                    border: '1px solid rgba(99, 102, 241, 0.2)',
+                    '&:hover': {
+                      bgcolor: 'rgba(99, 102, 241, 0.15)',
+                    }
+                  }
+                }}
               >
                 <ListItemText
                   primary={conv.title}
                   primaryTypographyProps={{
                     noWrap: true,
-                    sx: { fontSize: '0.9rem' }
+                    sx: { 
+                      fontSize: '0.875rem', 
+                      fontWeight: conv.id === activeConversationId ? 600 : 400,
+                      color: conv.id === activeConversationId ? 'primary.main' : 'text.primary'
+                    }
                    }}
                 />
               </ListItemButton>

@@ -7,12 +7,14 @@ import '@aws-amplify/ui-react/styles.css';
 import awsExports from './aws-exports';
 import { Toaster, toast } from 'react-hot-toast';
 
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles';
+import customTheme from './theme';
 import {
-  Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
-  Typography, Alert, TextField, FormControl, InputLabel, Select, MenuItem,
-  Button, IconButton, Tooltip
+  Box, Container, CssBaseline, Paper, List, ListItem, Avatar,
+  Typography, Alert, TextField, FormControl, Select, MenuItem,
+  Button, IconButton, Tooltip, useMediaQuery, useTheme
 } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import SendIcon from '@mui/icons-material/Send';
 import PersonIcon from '@mui/icons-material/Person';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
@@ -38,7 +40,7 @@ import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/materi
 
 Amplify.configure(awsExports);
 
-const drawerWidth = 280;
+const drawerWidth = 260; // Reduced from 280
 
 // --- CONFIG ---
 // REPLACE WITH YOUR ACTUAL EMAIL ADDRESSES
@@ -81,12 +83,14 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [activeArtifact, setActiveArtifact] = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
-
-  const lightTheme = createTheme({ palette: { mode: 'light' } });
 
   const CONVERSATIONS_URL = '/api/conversations';
   const GENERATE_URL = '/api/generate';
@@ -129,6 +133,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       const data = await res.json();
       const sortedMessages = data.sort((a: any, b: any) => a.timestamp.localeCompare(b.timestamp));
       setMessages(sortedMessages.map((msg: any) => ({ sender: msg.sender, text: msg.text })));
+      if (isMobile) setMobileOpen(false);
     } catch (err: any) { setError(`Failed to load messages: ${err.message}`); } finally { setIsLoading(false); }
   };
 
@@ -253,61 +258,123 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail);
 
   return (
-    <ThemeProvider theme={lightTheme}>
+    <ThemeProvider theme={customTheme}>
       <Toaster position="top-center" reverseOrder={false} toastOptions={{ duration: 3000, style: { background: '#333', color: '#fff' } }} />
       <CssBaseline />
 
       {/* --- Dialogs --- */}
-      <PromptLibrary open={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} onSelectPrompt={handleSelectPrompt} />
-      <FeedbackDialog open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
+      <PromptLibrary open={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} onSelectPrompt={handleSelectPrompt} isMobile={isMobile} />
+      <FeedbackDialog open={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} isMobile={isMobile} />
 
       <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         {currentView === 'chat' && (
           <ConversationSidebar
-            conversations={conversations} onSelectConversation={handleSelectConversation} onNewConversation={handleNewConversation} onDeleteConversation={handleDeleteConversation} onRenameConversation={handleRenameConversation} activeConversationId={activeConversationId}
+            conversations={conversations}
+            onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
+            onDeleteConversation={handleDeleteConversation}
+            onRenameConversation={handleRenameConversation}
+            activeConversationId={activeConversationId}
+            isMobile={isMobile}
+            mobileOpen={mobileOpen}
+            onClose={() => setMobileOpen(false)}
           />
         )}
 
         <Container
-          maxWidth={false}
+          maxWidth="md"
           sx={{
             display: 'flex', flexDirection: 'column', height: '100%',
-            pt: 2, pb: 2, boxSizing: 'border-box', flexGrow: 1,
-            ml: currentView === 'chat' ? `${drawerWidth}px` : 0,
-            transition: 'margin 0.3s ease'
+            pt: { xs: 1, md: 3 }, pb: { xs: 1, md: 3 }, 
+            px: { xs: 2, md: 4 }, // Equal left and right padding
+            boxSizing: 'border-box', flexGrow: 1,
+            transition: 'all 0.3s ease',
+            position: 'relative',
+            width: '100%',
+            mx: 'auto' // Center the chat content
           }}
         >
           {/* Header */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, mb: 2 }}>
-            {/* Logo, Title, and Tagline */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <img
-                src="/markitome-logo.png"
-                alt="Markitome Logo"
-                style={{ width: '100px', height: 'auto', borderRadius: '4px' }}
-              />
-              <Box>
-                <Typography variant="h5" component="h1" sx={{ fontWeight: 600, lineHeight: 1.2 }}>Markitome AI</Typography>
-                <Typography variant="body2" sx={{ color: 'text.secondary' }}>Your Intelligent Marketing Assistant</Typography>
+          <Box sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+            mb: 3,
+            p: 2,
+            borderRadius: 2,
+            background: 'rgba(255, 255, 255, 0.8)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(148, 163, 184, 0.2)',
+            boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)'
+          }}>
+            {/* Logo and Title */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 2 } }}>
+              {isMobile && currentView === 'chat' && (
+                <IconButton
+                  color="inherit"
+                  aria-label="open drawer"
+                  edge="start"
+                  onClick={() => setMobileOpen(true)}
+                  sx={{ mr: 1 }}
+                >
+                  <MenuIcon />
+                </IconButton>
+              )}
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <img 
+                  src="/markitome-logo.png" 
+                  alt="Markitome Logo" 
+                  style={{ 
+                    height: isMobile ? '32px' : '40px', 
+                    width: 'auto',
+                    objectFit: 'contain'
+                  }} 
+                />
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    color: 'text.secondary', 
+                    fontWeight: 500,
+                    fontSize: isMobile ? '0.65rem' : '0.75rem',
+                    letterSpacing: '0.01em',
+                    mt: 0.5,
+                    display: { xs: 'none', sm: 'block' }
+                  }}
+                >
+                  Your Intelligent Marketing Assistant
+                </Typography>
               </Box>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {/* --- Share Button --- */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 } }}>
               {activeConversationId && currentView === 'chat' && (
-                <Button variant="text" startIcon={<ShareIcon />} onClick={handleShareChat} sx={{ mr: 1 }}>Share</Button>
+                <Tooltip title="Share Chat">
+                  <IconButton onClick={handleShareChat} size="small" sx={{ color: 'text.secondary' }}>
+                    <ShareIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               )}
 
-              {/* Feedback Button */}
-              <Tooltip title="Report Bug / Feedback">
-                <IconButton onClick={() => setIsFeedbackOpen(true)} color="default">
-                  <BugReportIcon />
+              <Tooltip title="Feedback">
+                <IconButton onClick={() => setIsFeedbackOpen(true)} size="small" sx={{ color: 'text.secondary' }}>
+                  <BugReportIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
 
-              {isAdmin && (<Button variant={currentView === 'admin' ? 'contained' : 'text'} onClick={() => setCurrentView(prev => prev === 'chat' ? 'admin' : 'chat')} startIcon={currentView === 'chat' ? <DashboardIcon /> : <ChatIcon />}>{currentView === 'chat' ? 'Admin' : 'Chat'}</Button>)}
+              {isAdmin && (
+                <Button
+                  size="small"
+                  variant={currentView === 'admin' ? 'contained' : 'text'}
+                  onClick={() => setCurrentView(prev => prev === 'chat' ? 'admin' : 'chat')}
+                  startIcon={currentView === 'chat' ? <DashboardIcon /> : <ChatIcon />}
+                  sx={{ borderRadius: '8px', mx: 1 }}
+                >
+                  {currentView === 'chat' ? 'Admin' : 'Chat'}
+                </Button>
+              )}
 
-              <Button onClick={signOut} variant="outlined" size="small">Sign Out</Button>
+              <Button onClick={signOut} variant="text" size="small" sx={{ color: 'text.secondary' }}>Sign Out</Button>
             </Box>
           </Box>
 
@@ -317,31 +384,92 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
             <>
               <TextField label="System Prompt (Optional)" variant="outlined" fullWidth size="small" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} sx={{ mb: 2, flexShrink: 0 }} />
 
-              <Paper elevation={3} sx={{ flexGrow: 1, overflowY: 'auto', p: 2, mb: 2 }}>
-                <List>
+              <Paper
+                elevation={0}
+                sx={{
+                  flexGrow: 1,
+                  overflowY: 'auto',
+                  p: { xs: 1, md: 3 },
+                  mb: 2,
+                  bgcolor: '#ffffff',
+                  border: '1px solid rgba(148, 163, 184, 0.4)',
+                  borderRadius: 3,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2
+                }}
+              >
+                <List sx={{ p: 0 }}>
                   {messages.map((msg, index) => (
-                    <ListItem key={index} sx={{ alignItems: 'flex-start' }}>
-                      <Avatar sx={{ bgcolor: msg.sender === 'user' ? 'primary.main' : 'secondary.main', mr: 2 }}>{msg.sender === 'user' ? <PersonIcon /> : <SmartToyIcon />}</Avatar>
-                      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                        <ListItemText primary={msg.sender === 'user' ? `You (${userEmail ?? 'User'})` : 'AI'} secondary={
-                          <Typography component="div" variant="body2" sx={{ color: 'text.primary', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                            {msg.sender === 'ai' ? (<ReactMarkdown components={{ code: (props) => <CodeBlock {...props} darkMode={false} /> }}>{msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}</ReactMarkdown>) : (<span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>)}
-                          </Typography>
-                        }
-                          sx={{ overflowWrap: 'break-word', wordBreak: 'break-word' }} />
-
-                        {msg.sender === 'ai' && msg.text && !isLoading && (
-                          <Box sx={{ alignSelf: 'flex-end', mt: 0.5, display: 'flex', gap: 1 }}>
-                            <Tooltip title="Open in Side View">
-                              <IconButton size="small" onClick={() => setActiveArtifact(msg.text)}>
-                                <VerticalSplitIcon fontSize="inherit" />
-                              </IconButton>
-                            </Tooltip>
-                            <IconButton size="small" onClick={() => handleCopyText(msg.text)} aria-label="copy response">
-                              <ContentCopyIcon fontSize="inherit" />
-                            </IconButton>
-                          </Box>
-                        )}
+                    <ListItem
+                      key={index}
+                      className="message-appear"
+                      sx={{
+                        flexDirection: 'column',
+                        alignItems: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                        px: 0,
+                        py: 1,
+                        mb: 1
+                      }}
+                    >
+                      <Box sx={{
+                        display: 'flex',
+                        flexDirection: msg.sender === 'user' ? 'row-reverse' : 'row',
+                        alignItems: 'flex-start',
+                        gap: 1.5,
+                        maxWidth: { xs: '90%', md: '80%' }
+                      }}>
+                        <Avatar
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            bgcolor: msg.sender === 'user' ? 'primary.main' : 'background.paper',
+                            border: '1px solid rgba(148, 163, 184, 0.1)',
+                            fontSize: '0.875rem'
+                          }}
+                        >
+                          {msg.sender === 'user' ? <PersonIcon fontSize="small" /> : <SmartToyIcon fontSize="small" />}
+                        </Avatar>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: msg.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                          <Paper
+                            elevation={msg.sender === 'user' ? 3 : 0}
+                            sx={{
+                              p: 2,
+                              borderRadius: msg.sender === 'user' ? '18px 4px 18px 18px' : '4px 18px 18px 18px',
+                              background: msg.sender === 'user'
+                                ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                                : 'background.paper',
+                              color: msg.sender === 'user' ? 'white' : 'text.primary',
+                              border: msg.sender === 'ai' ? '1px solid rgba(148, 163, 184, 0.1)' : 'none',
+                              position: 'relative'
+                            }}
+                          >
+                            <Typography component="div" variant="body2" sx={{ lineHeight: 1.6, color: msg.sender === 'user' ? 'white' : 'text.primary' }}>
+                              {msg.sender === 'ai' ? (
+                                <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} /> }}>
+                                  {msg.text || (isLoading && index === messages.length - 1 ? "..." : "")}
+                                </ReactMarkdown>
+                              ) : (
+                                <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>
+                              )}
+                            </Typography>
+                          </Paper>
+                          
+                          {msg.sender === 'ai' && msg.text && !isLoading && (
+                            <Box sx={{ mt: 0.5, display: 'flex', gap: 0.5 }}>
+                              <Tooltip title="View Artifact">
+                                <IconButton size="small" onClick={() => setActiveArtifact(msg.text)} sx={{ color: 'text.secondary', opacity: 0.6, '&:hover': { opacity: 1 } }}>
+                                  <VerticalSplitIcon sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Copy">
+                                <IconButton size="small" onClick={() => handleCopyText(msg.text)} sx={{ color: 'text.secondary', opacity: 0.6, '&:hover': { opacity: 1 } }}>
+                                  <ContentCopyIcon sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          )}
+                        </Box>
                       </Box>
                     </ListItem>
                   ))}
@@ -350,20 +478,95 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
               </Paper>
               {error && <Alert severity="error" sx={{ mb: 2, flexShrink: 0 }}>{error}</Alert>}
 
-              <Box component="form" onSubmit={handleSubmit} sx={{ flexShrink: 0 }}>
-                <TextField label={model === 'dall-e-3' ? "Describe the image you want to generate..." : "Type your message..."} variant="outlined" fullWidth value={prompt} onChange={(e) => setPrompt(e.target.value)} disabled={isLoading} multiline rows={2} maxRows={6} />
+              <Box
+                component="form"
+                onSubmit={handleSubmit}
+                sx={{
+                  flexShrink: 0,
+                  p: 2,
+                  borderRadius: 4,
+                  bgcolor: 'background.paper',
+                  border: '1px solid rgba(148, 163, 184, 0.2)',
+                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
+                }}
+              >
+                <TextField
+                  placeholder={model === 'dall-e-3' ? "Describe the image..." : "Start your next campaign or type a command..."}
+                  variant="standard"
+                  fullWidth
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  disabled={isLoading}
+                  multiline
+                  maxRows={6}
+                  InputProps={{
+                    disableUnderline: true,
+                    sx: { fontSize: '1rem', px: 1, py: 1, color: 'text.primary' }
+                  }}
+                />
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <FormControl variant="outlined" sx={{ minWidth: 150 }} size="small">
-                      <InputLabel>Model</InputLabel>
-                      <Select value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} label="Model">
-                        <MenuItem value="gpt-4o">GPT-4o</MenuItem><MenuItem value="gpt-4">GPT-4</MenuItem><MenuItem value="gemini-pro">Gemini Pro</MenuItem><MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem><MenuItem value="claude-4-6-sonnet">Claude 4.6 Sonnet</MenuItem><MenuItem value="llama-4-scout">Llama 4 Scout (Groq)</MenuItem><MenuItem value="mistral-large">Mistral Large</MenuItem><MenuItem value="dall-e-3">DALL-E 3 (Image)</MenuItem>
+                    <FormControl variant="outlined" size="small" sx={{ 
+                      '& .MuiOutlinedInput-root': { 
+                        bgcolor: 'transparent', 
+                        border: 'none',
+                        '& fieldset': { border: 'none' } 
+                      } 
+                    }}>
+                      <Select
+                        value={model}
+                        onChange={(e) => setModel(e.target.value as SupportedModel)}
+                        sx={{ fontSize: '0.875rem', color: 'text.secondary' }}
+                        MenuProps={{
+                          PaperProps: {
+                            sx: { bgcolor: 'background.paper', border: '1px solid rgba(148, 163, 184, 0.2)' }
+                          }
+                        }}
+                      >
+                        <MenuItem value="gpt-4o">GPT-4o</MenuItem>
+                        <MenuItem value="claude-4-6-sonnet">Claude 3.5</MenuItem>
+                        <MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
+                        <MenuItem value="llama-4-scout">Llama 3</MenuItem>
                       </Select>
                     </FormControl>
-                    <Tooltip title="Browse Prompt Library"><IconButton onClick={() => setIsLibraryOpen(true)} color="primary" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}><LibraryBooksIcon /></IconButton></Tooltip>
-                    <Tooltip title={isListening ? "Listening..." : "Speak Input"}><IconButton onClick={handleVoiceInput} color={isListening ? "error" : "primary"} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, animation: isListening ? 'pulse 1.5s infinite' : 'none' }}><MicIcon /></IconButton></Tooltip>
+                    <Tooltip title="Prompt Library">
+                      <IconButton onClick={() => setIsLibraryOpen(true)} size="small" sx={{ color: 'text.secondary' }}>
+                        <LibraryBooksIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title={isListening ? "Listening..." : "Voice Input"}>
+                      <IconButton
+                        onClick={handleVoiceInput}
+                        size="small"
+                        sx={{
+                          color: isListening ? 'error.main' : 'text.secondary',
+                          animation: isListening ? 'pulse 1.5s infinite' : 'none'
+                        }}
+                      >
+                        <MicIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
-                  {isLoading ? (<Button variant="outlined" color="warning" onClick={handleStopGenerating} startIcon={<StopCircleIcon />}>Stop Generating</Button>) : (<Button type="submit" variant="contained" endIcon={<SendIcon />} disabled={!prompt.trim()}>Send</Button>)}
+                  <Box>
+                    {isLoading ? (
+                      <IconButton onClick={handleStopGenerating} color="warning">
+                        <StopCircleIcon />
+                      </IconButton>
+                    ) : (
+                      <IconButton
+                        type="submit"
+                        disabled={!prompt.trim()}
+                        sx={{
+                          bgcolor: 'primary.main',
+                          color: 'white',
+                          '&:hover': { bgcolor: 'primary.dark' },
+                          '&.Mui-disabled': { bgcolor: 'rgba(148, 163, 184, 0.1)', color: 'rgba(148, 163, 184, 0.3)' }
+                        }}
+                      >
+                        <SendIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Box>
                 </Box>
               </Box>
             </>
@@ -375,6 +578,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
           isOpen={!!activeArtifact}
           onClose={() => setActiveArtifact(null)}
           darkMode={false}
+          isMobile={isMobile}
         />
       </Box>
     </ThemeProvider>
@@ -386,28 +590,6 @@ const components = {
   Header() {
     return (
       <>
-        {/* --- INJECTED CSS STYLES --- */}
-        <style>{`
-          /* Force page background to white */
-          [data-amplify-authenticator] {
-            background-color: #ffffff !important;
-          }
-          /* Ensure container is also white */
-          [data-amplify-container] {
-            background-color: #ffffff !important;
-          }
-          /* Style the form card: Light gray with a subtle border/shadow */
-          .amplify-card {
-            background-color: #f8f9fa !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
-            border: 1px solid #e1e4e8 !important;
-          }
-          /* Style input fields to pop against the gray card */
-          .amplify-input {
-            background-color: #ffffff !important;
-          }
-        `}</style>
-
         <div style={{ textAlign: 'center', padding: '20px' }}>
           <img
             src="/markitome-logo.png"

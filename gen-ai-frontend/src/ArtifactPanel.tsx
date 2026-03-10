@@ -22,6 +22,7 @@ interface ArtifactPanelProps {
   isOpen: boolean;
   onClose: () => void;
   darkMode: boolean;
+  isMobile: boolean;
 }
 
 const CodeBlock = ({ node, inline, className, children, darkMode, ...props }: any) => {
@@ -33,7 +34,7 @@ const CodeBlock = ({ node, inline, className, children, darkMode, ...props }: an
   ) : ( <code className={className} {...props}>{children}</code> );
 };
 
-export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ content, isOpen, onClose, darkMode }) => {
+export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ content, isOpen, onClose, darkMode, isMobile }) => {
   const [tabIndex, setTabIndex] = useState(0);
   const [isHtml, setIsHtml] = useState(false);
 
@@ -60,16 +61,19 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({ content, isOpen, o
     <Paper
       elevation={4}
       sx={{
-        width: '45%', // Takes up 45% of the screen width
-        minWidth: '400px',
+        width: isMobile ? '100%' : '45%',
+        minWidth: isMobile ? '100%' : '400px',
         height: '100%',
+        position: isMobile ? 'fixed' : 'relative',
+        top: 0,
+        right: 0,
         borderLeft: '1px solid',
         borderColor: 'divider',
         display: 'flex',
         flexDirection: 'column',
-        position: 'relative',
-        zIndex: 1200, // Above standard elements
-        borderRadius: 0
+        zIndex: 1300, 
+        borderRadius: 0,
+        boxShadow: isMobile ? 'none' : 4,
       }}
     >
       {/* Header */}

@@ -76,9 +76,10 @@ interface PromptLibraryProps {
   open: boolean;
   onClose: () => void;
   onSelectPrompt: (prompt: string) => void;
+  isMobile: boolean;
 }
 
-export const PromptLibrary: React.FC<PromptLibraryProps> = ({ open, onClose, onSelectPrompt }) => {
+export const PromptLibrary: React.FC<PromptLibraryProps> = ({ open, onClose, onSelectPrompt, isMobile }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Filter logic
@@ -88,7 +89,7 @@ export const PromptLibrary: React.FC<PromptLibraryProps> = ({ open, onClose, onS
   })).filter(cat => cat.prompts.length > 0);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth fullScreen={isMobile}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <LibraryBooksIcon color="primary" />
         Marketing Prompt Library
