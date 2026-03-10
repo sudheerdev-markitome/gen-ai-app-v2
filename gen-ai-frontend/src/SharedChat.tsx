@@ -1,8 +1,8 @@
 // src/SharedChat.tsx
 import React, { useEffect, useState } from 'react';
 import {
-  Box, Container, CssBaseline, Paper, List, ListItem, Avatar, ListItemText,
-  Typography, CircularProgress, Alert, Button
+  Box, Container, CssBaseline, Paper, List, ListItem, Avatar,
+  Typography, CircularProgress, Alert, Button, useMediaQuery, useTheme
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
@@ -12,7 +12,6 @@ import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/materi
 
 import { ThemeProvider } from '@mui/material/styles';
 import customTheme from './theme';
-import { useMediaQuery, useTheme } from '@mui/material';
 
 const CodeBlock = ({ node, inline, className, children, ...props }: any) => {
   const match = /language-(\w+)/.exec(className || '');

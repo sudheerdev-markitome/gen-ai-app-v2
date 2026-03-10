@@ -40,8 +40,6 @@ import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/materi
 
 Amplify.configure(awsExports);
 
-const drawerWidth = 260; // Reduced from 280
-
 // --- CONFIG ---
 // REPLACE WITH YOUR ACTUAL EMAIL ADDRESSES
 const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"];
