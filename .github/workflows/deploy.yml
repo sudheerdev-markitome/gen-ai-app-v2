@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Connect to server and deploy
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.0
         timeout-minutes: 30 # Set a timeout for this specific step
         with:
           host: ${{ secrets.HOST }}
