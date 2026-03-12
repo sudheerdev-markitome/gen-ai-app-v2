@@ -8,73 +8,72 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # Set an overall timeout for the entire job
+    timeout-minutes: 60
 
     steps:
       - name: Connect to server and deploy
         uses: appleboy/ssh-action@v1.2.0
-        timeout-minutes: 30 # Set a timeout for this specific step
+        timeout-minutes: 30
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
           script: |
-            # Exit immediately if any command fails
             set -e
 
-            # Navigate to the project directory
             echo "--- Navigating to project directory ---"
             cd ~/gen-ai-app
 
-            # Ensure the ubuntu user owns all files
             echo "--- Correcting file permissions ---"
             sudo chown -R ubuntu:ubuntu .
 
-            # Pull the latest code
             echo "--- Pulling latest code ---"
             git fetch --all
             git reset --hard origin/main
 
-            # Build the frontend static files
             echo "--- Building frontend ---"
             cd gen-ai-frontend
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             npm install
-
-            # --- ADD ENV VARIABLE TO BUILD COMMAND ---
             VITE_SENTRY_FRONTEND_DSN=${{ secrets.VITE_SENTRY_FRONTEND_DSN }} npm run build
-            # -----------------------------------------
+            cd ..
 
-            cd .. 
-
-            # Deploy frontend files
             echo "--- Deploying frontend files ---"
             sudo rm -rf /var/www/html/*
             sudo cp -R gen-ai-frontend/dist/* /var/www/html/
 
-            # Deploy nginx config so /api/ routes proxy correctly to backend
-            echo "--- Deploying Nginx config ---"
-            sudo cp gen-ai-frontend/nginx.conf /etc/nginx/sites-available/markitome
-            sudo ln -sf /etc/nginx/sites-available/markitome /etc/nginx/sites-enabled/markitome
-            # Remove default site if it exists to avoid conflicts
-            sudo rm -f /etc/nginx/sites-enabled/default
-            # Test nginx config before reloading
-            sudo nginx -t
+            echo "--- Deploying Nginx API proxy snippet ---"
+            sudo mkdir -p /etc/nginx/snippets
+            sudo cp nginx-api-proxy.conf /etc/nginx/snippets/markitome-api-proxy.conf
 
-            # Clean up old Docker resources
+            # Find the active site config file
+            SITE_CONF=""
+            for f in /etc/nginx/sites-available/markitome.ai /etc/nginx/sites-available/markitome /etc/nginx/sites-available/default; do
+              if [ -f "$f" ]; then
+                SITE_CONF="$f"
+                break
+              fi
+            done
+            echo "Using site config: $SITE_CONF"
+
+            # Inject include if not already there
+            if [ -n "$SITE_CONF" ] && ! sudo grep -q "markitome-api-proxy.conf" "$SITE_CONF"; then
+              echo "Adding proxy snippet include to $SITE_CONF..."
+              sudo sed -i "s|location / {|include snippets/markitome-api-proxy.conf;\n    location / {|" "$SITE_CONF"
+            fi
+
             echo "--- Cleaning up Docker resources ---"
             sudo docker system prune -af || true
 
-            # Force a no-cache build for the backend
             echo "--- Building backend container (no cache) ---"
             sudo docker-compose build --no-cache
 
-            # Start all containers
             echo "--- Starting containers ---"
             sudo docker-compose up -d
 
-            # Reload Nginx to apply the new config (graceful reload, no downtime)
-            echo "--- Reloading Nginx ---"
-            sudo systemctl reload nginx
+            echo "--- Testing and reloading Nginx ---"
+            sudo nginx -t && sudo systemctl reload nginx
+
+            echo "--- Deploy complete! ---"
