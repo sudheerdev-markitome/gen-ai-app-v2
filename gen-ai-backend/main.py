@@ -56,8 +56,11 @@ ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"]
 COGNITO_REGION = os.getenv("COGNITO_REGION", "ap-south-1")
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID")
 COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID")
+SES_SENDER_EMAIL = os.getenv("SES_SENDER_EMAIL", "noreply@markitome.com")
+SES_REGION = os.getenv("SES_REGION", COGNITO_REGION)
 
 dynamodb = boto3.resource('dynamodb', region_name=COGNITO_REGION)
+ses_client = boto3.client('ses', region_name=SES_REGION)
 chat_history_table = dynamodb.Table('ChatHistory')
 usage_logs_table = dynamodb.Table('UsageLogs')
 shared_links_table = dynamodb.Table('SharedLinks')
@@ -97,6 +100,26 @@ tool_functions = {
     "get_current_server_time": get_current_server_time,
     "google_search": google_search
 }
+
+def send_admin_notification(subject: str, body: str):
+    """Sends a notification email to all admin emails using Amazon SES."""
+    if not SES_SENDER_EMAIL:
+        print("SES_SENDER_EMAIL not configured. Skipping notification.")
+        return
+    
+    try:
+        response = ses_client.send_email(
+            Source=SES_SENDER_EMAIL,
+            Destination={'ToAddresses': ADMIN_EMAILS},
+            Message={
+                'Subject': {'Data': subject},
+                'Body': {'Text': {'Data': body}}
+            }
+        )
+        return response
+    except Exception as e:
+        print(f"Failed to send SES notification: {e}")
+        return None
 
 ## -------------------
 ## AUTHENTICATION
@@ -154,6 +177,19 @@ def upload_file_to_openai(file: UploadFile):
 
 # --- ENDPOINTS ---
 # (Feedback, Stats, Conversations endpoints remain exactly the same as before)
+class AccessRequest(BaseModel):
+    email: Optional[str] = "Unknown"
+    details: Optional[str] = ""
+
+@app.post("/api/notify/access-request")
+async def notify_access_request(request: AccessRequest):
+    """Endpoint to notify admins when someone clicks 'Request Access' or signs up."""
+    subject = "🚀 New Access Request - Markitome AI"
+    body = f"Hello Admin,\n\nA new user has requested access or initiated the sign-up process.\n\nEmail: {request.email}\nDetails: {request.details}\nTimestamp: {datetime.now(timezone.utc).isoformat()}\n\nBest,\nMarkitome System"
+    
+    success = send_admin_notification(subject, body)
+    return {"message": "Notification process complete", "success": bool(success)}
+
 @app.post("/api/feedback")
 async def submit_feedback(request: FeedbackRequest, current_user: dict = Depends(get_current_user)):
     try:

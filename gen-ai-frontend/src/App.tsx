@@ -369,9 +369,8 @@ const components = {
   Header() {
     return (
       <Box sx={{ textAlign: 'center', p: 4 }}>
-        <img src="/markitome-logo.png" alt="Markitome" style={{ width: '120px', height: 'auto', marginBottom: '16px' }} />
-        <Typography variant="h5" sx={{ fontWeight: 700 }}>Markitome AI</Typography>
-        <Typography variant="body2" color="text.secondary">Your Intelligent Marketing Assistant</Typography>
+        <img src="/markitome-logo.png" alt="Markitome" style={{ width: '120px', height: 'auto' }} />
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Your Intelligent Marketing Assistant</Typography>
       </Box>
     );
   }

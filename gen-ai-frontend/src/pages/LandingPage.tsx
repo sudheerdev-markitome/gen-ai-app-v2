@@ -14,6 +14,18 @@ import { useNavigate } from 'react-router-dom';
 const LandingPage = () => {
   const navigate = useNavigate();
 
+  const handleRequestAccess = async () => {
+    // Fire and forget notification
+    fetch('/api/notify/access-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ details: 'Clicked Request Access from Landing Page' })
+    }).catch(err => console.error('Notification failed', err));
+    
+    // Immediate redirect
+    navigate('/app?mode=signup');
+  };
+
   const features = [
     {
       icon: <AutoAwesome color="primary" />,
@@ -49,20 +61,17 @@ const LandingPage = () => {
           <Toolbar disableGutters sx={{ justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <img src="/markitome-logo.png" alt="Markitome" style={{ height: 32 }} />
-              <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.main', display: { xs: 'none', sm: 'block' } }}>
-                Markitome AI
-              </Typography>
             </Box>
             
             <Stack direction="row" spacing={2}>
               <Button variant="text" onClick={() => navigate('/login')} sx={{ fontWeight: 600 }}>Login</Button>
-              <Button variant="contained" onClick={() => navigate('/app?mode=signup')} sx={{ 
+              <Button variant="contained" onClick={handleRequestAccess} sx={{ 
                 borderRadius: '8px',
                 px: 3,
                 fontWeight: 600,
                 background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
               }}>
-                Get Started
+                Request Access
               </Button>
             </Stack>
           </Toolbar>
@@ -96,7 +105,7 @@ const LandingPage = () => {
                   <Button 
                     variant="contained" 
                     size="large" 
-                    onClick={() => navigate('/app')}
+                    onClick={handleRequestAccess}
                     sx={{ 
                       borderRadius: '12px',
                       px: 4, py: 1.5,
@@ -107,7 +116,7 @@ const LandingPage = () => {
                     }}
                     endIcon={<ChevronRight />}
                   >
-                    Start Free Trial
+                    Request Access
                   </Button>
                   <Button 
                     variant="outlined" 
@@ -187,7 +196,6 @@ const LandingPage = () => {
               <Stack spacing={2}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <img src="/markitome-logo.png" alt="Markitome" style={{ height: 24 }} />
-                  <Typography variant="h6" sx={{ fontWeight: 700 }}>Markitome AI</Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary">
                   Empowering 5,000+ marketers to create, optimize, and scale their content studio.
