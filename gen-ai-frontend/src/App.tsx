@@ -99,7 +99,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       try {
         const token = await getAuthToken();
         const res = await fetch(CONVERSATIONS_URL, { headers: { 'Authorization': `Bearer ${token}` } });
-        if (!res.ok) { const errorData = await res.json(); throw new Error(errorData.detail || "Failed to fetch conversations"); }
+        if (!res.ok) {
+          let errorDetail = `Server error: ${res.status}`;
+          try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
+          throw new Error(errorDetail);
+        }
         const data = await res.json();
         setConversations(data.map((item: any) => ({ id: item.id, title: item.title })));
       } catch (err: any) { setError(`Failed to load conversations: ${err.message}`); }
@@ -118,7 +122,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     try {
       const token = await getAuthToken();
       const res = await fetch(`${CONVERSATIONS_URL}/${id}`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (!res.ok) { const errorData = await res.json(); throw new Error(errorData.detail || "Failed to fetch messages"); }
+      if (!res.ok) {
+        let errorDetail = `Server error: ${res.status}`;
+        try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
+        throw new Error(errorDetail);
+      }
       const data = await res.json();
       const sortedMessages = data.sort((a: any, b: any) => a.timestamp.localeCompare(b.timestamp));
       setMessages(sortedMessages.map((msg: any) => ({ sender: msg.sender, text: msg.text })));
@@ -139,7 +147,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${CONVERSATIONS_URL}/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-      if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.detail || 'Failed to delete conversation'); }
+      if (!response.ok) {
+        let errorDetail = `Server error: ${response.status}`;
+        try { const errorData = await response.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
+        throw new Error(errorDetail);
+      }
       setConversations(prev => prev.filter(conv => conv.id !== id));
       if (activeConversationId === id) { handleNewConversation(); }
     } catch (error) { throw error; }
@@ -150,7 +162,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${CONVERSATIONS_URL}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ new_title: newTitle }) });
-      if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.detail || 'Failed to rename conversation'); }
+      if (!response.ok) {
+        let errorDetail = `Server error: ${response.status}`;
+        try { const errorData = await response.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
+        throw new Error(errorDetail);
+      }
       const updatedConversation = await response.json();
       setConversations(prev => prev.map(conv => conv.id === id ? { ...conv, title: updatedConversation.title } : conv));
       return updatedConversation;
@@ -173,7 +189,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error("Failed to generate share link");
+      if (!res.ok) {
+        let errorDetail = `Server error: ${res.status}`;
+        try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) {}
+        throw new Error(errorDetail);
+      }
       const data = await res.json();
       const fullUrl = `${window.location.origin}/share/${data.shareId}`;
       await navigator.clipboard.writeText(fullUrl);
