@@ -12,6 +12,7 @@ import shutil
 
 # Import Form, File, UploadFile
 from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -125,9 +126,16 @@ def send_admin_notification(subject: str, body: str):
 ## AUTHENTICATION
 ## -------------------
 COGNITO_JWKS_URL = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
+jwks = {"keys": []}
 try:
-    response = requests.get(COGNITO_JWKS_URL); response.raise_for_status(); jwks = response.json()
+    if COGNITO_USER_POOL_ID:
+        response = requests.get(COGNITO_JWKS_URL, timeout=5)
+        response.raise_for_status()
+        jwks = response.json()
+    else:
+        print("WARNING: COGNITO_USER_POOL_ID not set. Auth will fail.")
 except Exception as e:
+    print(f"CRITICAL WARNING: Failed to fetch Cognito JWKS: {e}. Auth will fail.")
     print(f"CRITICAL: Could not fetch JWKS - {e}"); jwks = {"keys": []}
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -152,6 +160,23 @@ class RenameRequest(BaseModel): new_title: str
 class FeedbackRequest(BaseModel): message: str; category: str = "bug"
 
 app = FastAPI()
+
+# --- CORS CONFIGURATION ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production you might want to restrict this to ["https://markitome.ai"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "cognito_configured": bool(COGNITO_USER_POOL_ID)
+    }
 
 # --- HELPER: Upload File to OpenAI ---
 def upload_file_to_openai(file: UploadFile):
