@@ -54,6 +54,15 @@ jobs:
             sudo rm -rf /var/www/html/*
             sudo cp -R gen-ai-frontend/dist/* /var/www/html/
 
+            # Deploy nginx config so /api/ routes proxy correctly to backend
+            echo "--- Deploying Nginx config ---"
+            sudo cp gen-ai-frontend/nginx.conf /etc/nginx/sites-available/markitome
+            sudo ln -sf /etc/nginx/sites-available/markitome /etc/nginx/sites-enabled/markitome
+            # Remove default site if it exists to avoid conflicts
+            sudo rm -f /etc/nginx/sites-enabled/default
+            # Test nginx config before reloading
+            sudo nginx -t
+
             # Clean up old Docker resources
             echo "--- Cleaning up Docker resources ---"
             sudo docker system prune -af || true
@@ -66,6 +75,6 @@ jobs:
             echo "--- Starting containers ---"
             sudo docker-compose up -d
 
-            # Restart the host Nginx
-            echo "--- Restarting host Nginx ---"
-            sudo systemctl restart nginx
+            # Reload Nginx to apply the new config (graceful reload, no downtime)
+            echo "--- Reloading Nginx ---"
+            sudo systemctl reload nginx
