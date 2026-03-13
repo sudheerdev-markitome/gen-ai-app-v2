@@ -56,6 +56,6 @@ uvicorn==0.37.0
 sentry-sdk[fastapi]
 deepeval
 pytest
-anthropic
-groq
-mistralai
+anthropic>=0.40.0
+groq>=0.13.0
+mistralai>=1.0.0
