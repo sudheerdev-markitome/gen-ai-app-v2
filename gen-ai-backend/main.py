@@ -23,7 +23,21 @@ import openai
 import google.generativeai as genai
 import anthropic
 from groq import Groq
-from mistralai import Mistral
+
+# Diagnostic for Mistral import issue
+try:
+    import mistralai
+    print(f"DEBUG: mistralai package found at {mistralai.__file__}")
+    from mistralai import Mistral
+    print("DEBUG: Successfully imported Mistral from mistralai")
+except ImportError as e:
+    print(f"ERROR: Failed to import Mistral or mistralai: {e}")
+    # Fallback to old client if necessary for diagnostic purposes, 
+    # but the goal is to fix the environment to use the new SDK.
+    Mistral = None 
+except Exception as e:
+    print(f"CRITICAL: Unexpected error importing mistralai: {e}")
+    Mistral = None
 
 ## -------------------
 ## CONFIGURATION
