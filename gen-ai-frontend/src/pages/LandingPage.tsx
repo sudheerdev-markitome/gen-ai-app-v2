@@ -14,16 +14,9 @@ import { useNavigate } from 'react-router-dom';
 const LandingPage = () => {
   const navigate = useNavigate();
 
-  const handleRequestAccess = async () => {
-    // Fire and forget notification
-    fetch('/api/notify/access-request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ details: 'Clicked Request Access from Landing Page' })
-    }).catch(err => console.error('Notification failed', err));
-    
-    // Immediate redirect
-    navigate('/app?mode=signup');
+  const handleRequestAccess = () => {
+    // Immediate redirect to the new form
+    navigate('/request-access');
   };
 
   const features = [

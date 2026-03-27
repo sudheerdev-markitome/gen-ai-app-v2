@@ -80,6 +80,7 @@ chat_history_table = dynamodb.Table('ChatHistory')
 usage_logs_table = dynamodb.Table('UsageLogs')
 shared_links_table = dynamodb.Table('SharedLinks')
 user_feedback_table = dynamodb.Table('UserFeedback')
+registration_leads_table = dynamodb.Table('RegistrationLeads')
 
 SUPPORTED_MODELS = {
     "gpt-4o": { "type": "openai_assistant", "name": OPENAI_ASSISTANT_ID },
@@ -87,7 +88,7 @@ SUPPORTED_MODELS = {
     "gemini-pro": { "type": "google", "name": "gemini-pro-latest" },
     "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" },
     "dall-e-3": { "type": "image", "name": "dall-e-3" },
-    "claude-4-6-sonnet": { "type": "anthropic", "name": "claude-sonnet-4-6" },
+    "claude-4-6-sonnet": { "type": "anthropic", "name": "claude-3-7-sonnet-20250219" },
     "llama-4-scout": { "type": "groq", "name": "meta-llama/llama-4-scout-17b-16e-instruct" },
     "mistral-large": { "type": "mistral", "name": "mistral-large-latest" }
 }
@@ -217,14 +218,45 @@ def upload_file_to_openai(file: UploadFile):
 # --- ENDPOINTS ---
 # (Feedback, Stats, Conversations endpoints remain exactly the same as before)
 class AccessRequest(BaseModel):
+    fullName: Optional[str] = "Unknown"
+    companyName: Optional[str] = "Unknown"
+    phoneNumber: Optional[str] = "Unknown"
     email: Optional[str] = "Unknown"
     details: Optional[str] = ""
 
 @app.post("/api/notify/access-request")
 async def notify_access_request(request: AccessRequest):
-    """Endpoint to notify admins when someone clicks 'Request Access' or signs up."""
+    """Endpoint to notify admins when someone fills the Request Access form."""
+    timestamp = datetime.now(timezone.utc).isoformat()
+    
+    # 1. Save to DynamoDB
+    try:
+        registration_leads_table.put_item(Item={
+            'leadId': str(uuid.uuid4()),
+            'fullName': request.fullName,
+            'companyName': request.companyName,
+            'phoneNumber': request.phoneNumber,
+            'email': request.email,
+            'details': request.details,
+            'timestamp': timestamp,
+            'status': 'new'
+        })
+    except Exception as e:
+        print(f"Failed to save lead to DynamoDB: {e}")
+
+    # 2. Send Notification
     subject = "🚀 New Access Request - Markitome AI"
-    body = f"Hello Admin,\n\nA new user has requested access or initiated the sign-up process.\n\nEmail: {request.email}\nDetails: {request.details}\nTimestamp: {datetime.now(timezone.utc).isoformat()}\n\nBest,\nMarkitome System"
+    body = (
+        f"Hello Admin,\n\n"
+        f"A new user has requested access through the form.\n\n"
+        f"Full Name: {request.fullName}\n"
+        f"Company Name: {request.companyName}\n"
+        f"Phone Number: {request.phoneNumber}\n"
+        f"Email: {request.email}\n"
+        f"Details: {request.details}\n"
+        f"Timestamp: {timestamp}\n\n"
+        f"Best,\nMarkitome System"
+    )
     
     success = send_admin_notification(subject, body)
     return {"message": "Notification process complete", "success": bool(success)}

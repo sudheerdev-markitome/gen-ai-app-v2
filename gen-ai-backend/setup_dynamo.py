@@ -41,6 +41,14 @@ tables = {
         'AttributeDefinitions': [
             {'AttributeName': 'feedbackId', 'AttributeType': 'S'}
         ]
+    },
+    'RegistrationLeads': {
+        'KeySchema': [
+            {'AttributeName': 'leadId', 'KeyType': 'HASH'}
+        ],
+        'AttributeDefinitions': [
+            {'AttributeName': 'leadId', 'AttributeType': 'S'}
+        ]
     }
 }
 

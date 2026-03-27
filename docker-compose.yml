@@ -1,5 +1,3 @@
-# version: '3.8' # Obsolete, can be removed
-
 services:
   backend:
     build: ./gen-ai-backend
@@ -8,23 +6,8 @@ services:
       - ./gen-ai-backend/.env
     ports:
       - "8000:8000"
-    depends_on:
-      - chromadb
     logging:
       driver: json-file
       options:
         max-size: "50m"
         max-file: "5"
-
-  chromadb:
-    image: chromadb/chroma
-    restart: unless-stopped
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./chroma_data:/chroma/.chroma/index
-    logging:
-      driver: json-file
-      options:
-        max-size: "20m"
-        max-file: "3"

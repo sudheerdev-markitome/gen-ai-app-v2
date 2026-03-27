@@ -6,6 +6,7 @@ import './index.css'
 import App from './App.tsx'
 import { SharedChat } from './SharedChat.tsx'
 import LandingPage from './pages/LandingPage.tsx'
+import RequestAccess from './pages/RequestAccess.tsx'
 import PrivacyPolicy from './pages/PrivacyPolicy.tsx'
 import TermsOfService from './pages/TermsOfService.tsx'
 import CookieConsent from './components/CookieConsent.tsx'
@@ -29,6 +30,7 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
+        <Route path="/request-access" element={<RequestAccess />} />
         <Route path="/share/:id" element={<SharedChat />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/terms" element={<TermsOfService />} />

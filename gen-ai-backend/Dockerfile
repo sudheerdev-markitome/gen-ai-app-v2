@@ -4,17 +4,18 @@ FROM python:3.12-slim
 # Set the working directory inside the container
 WORKDIR /app
 
-# --- ADD THESE LINES ---
-# Install system dependencies needed by OpenCV (used by unstructured[pdf])
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && \
-    rm -rf /var/lib/apt/lists/*
-# ---------------------
+# Install system dependencies needed for cryptography (jose)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file first to leverage Docker's layer caching
 COPY requirements.txt .
 
 # Install the Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of your application code into the container
 COPY . .

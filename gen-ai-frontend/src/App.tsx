@@ -361,9 +361,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <Select size="small" value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} sx={{ fontSize: '0.8rem' }}>
                       <MenuItem value="gpt-4o">GPT-4o</MenuItem>
-                      <MenuItem value="claude-4-6-sonnet">Claude 3.5</MenuItem>
-                      <MenuItem value="gemini-2.5-flash">Gemini Flash</MenuItem>
-                      <MenuItem value="llama-4-scout">Llama 3</MenuItem>
+                      <MenuItem value="claude-4-6-sonnet">Claude Sonnet 4.6</MenuItem>
+                      <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash</MenuItem>
+                      <MenuItem value="llama-4-scout">Llama 4 Scout</MenuItem>
                     </Select>
                     <IconButton onClick={() => setIsLibraryOpen(true)} size="small"><LibraryBooksIcon fontSize="small" /></IconButton>
                     <IconButton onClick={handleVoiceInput} size="small" color={isListening ? 'error' : 'default'}><MicIcon fontSize="small" /></IconButton>
