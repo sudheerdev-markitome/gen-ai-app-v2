@@ -62,9 +62,17 @@ jobs:
             git reset --hard origin/main
 
             echo "--- Deploying frontend files (pre-built) ---"
-            sudo rm -rf /var/www/html/*
+            # Extract to the project-local dist folder (some Nginx configs point here)
+            mkdir -p gen-ai-frontend/dist
+            rm -rf gen-ai-frontend/dist/*
+            tar -xzf dist.tar.gz -C gen-ai-frontend/dist/
+            
+            # Extract to the global web root (standard Ubuntu Nginx root)
             sudo mkdir -p /var/www/html/
-            sudo tar -xzf dist.tar.gz -C /var/www/html/
+            sudo rm -rf /var/www/html/*
+            sudo cp -R gen-ai-frontend/dist/* /var/www/html/
+            
+            # Cleanup the archive
             rm dist.tar.gz
 
             echo "--- Deploying Nginx API proxy snippet ---"
@@ -73,7 +81,7 @@ jobs:
 
             # Find the active site config file
             SITE_CONF=""
-            for f in /etc/nginx/sites-available/markitome.ai /etc/nginx/sites-available/markitome /etc/nginx/sites-available/default; do
+            for f in /etc/nginx/sites-available/markitome.ai /etc/nginx/sites-available/markitome /etc/nginx/sites-available/default /etc/nginx/nginx.conf; do
               if [ -f "$f" ]; then
                 SITE_CONF="$f"
                 break
