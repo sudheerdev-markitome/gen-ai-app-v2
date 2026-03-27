@@ -63,7 +63,7 @@ groq_client = Groq(api_key=groq_key) if (groq_key and "your_groq" not in groq_ke
 
 # Mistral Client
 mistral_key = os.getenv("MISTRAL_API_KEY")
-mistral_client = Mistral(api_key=mistral_key) if (mistral_key and "your_mistral" not in mistral_key) else None
+mistral_client = Mistral(api_key=mistral_key) if (Mistral and mistral_key and "your_mistral" not in mistral_key) else None
 
 # --- ADMIN ACCESS CONTROL ---
 ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"]
@@ -446,7 +446,7 @@ async def generate_text_sync(
             # Format history for Gemini
             gemini_history = []
             for h in parsed_history:
-                # Role mapping: 'user' stays 'user', 'model' stays 'model' (frontend sends 'model' for AI)
+                # Role mapping: 'user' stays 'user', 'model'
                 gemini_history.append({
                     "role": h.get("role", "user"),
                     "parts": [h.get("content", "")]
