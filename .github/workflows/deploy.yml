@@ -11,6 +11,38 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: gen-ai-frontend/package-lock.json
+
+      - name: Build Frontend
+        working-directory: gen-ai-frontend
+        run: |
+          npm install
+          npm run build
+        env:
+          VITE_SENTRY_FRONTEND_DSN: ${{ secrets.VITE_SENTRY_FRONTEND_DSN }}
+
+      - name: Prepare Frontend for Transfer
+        run: |
+          tar -czf dist.tar.gz -C gen-ai-frontend/dist .
+
+      - name: Upload Frontend to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          source: "dist.tar.gz"
+          target: "~/gen-ai-app/"
+
       - name: Connect to server and deploy
         uses: appleboy/ssh-action@v1.2.0
         timeout-minutes: 30
@@ -25,24 +57,15 @@ jobs:
             echo "--- Navigating to project directory ---"
             cd ~/gen-ai-app
 
-            echo "--- Correcting file permissions ---"
-            sudo chown -R ubuntu:ubuntu .
-
-            echo "--- Pulling latest code ---"
+            echo "--- Pulling latest backend code ---"
             git fetch --all
             git reset --hard origin/main
 
-            echo "--- Building frontend ---"
-            cd gen-ai-frontend
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            npm install
-            VITE_SENTRY_FRONTEND_DSN=${{ secrets.VITE_SENTRY_FRONTEND_DSN }} npm run build
-            cd ..
-
-            echo "--- Deploying frontend files ---"
+            echo "--- Deploying frontend files (pre-built) ---"
             sudo rm -rf /var/www/html/*
-            sudo cp -R gen-ai-frontend/dist/* /var/www/html/
+            sudo mkdir -p /var/www/html/
+            sudo tar -xzf dist.tar.gz -C /var/www/html/
+            rm dist.tar.gz
 
             echo "--- Deploying Nginx API proxy snippet ---"
             sudo mkdir -p /etc/nginx/snippets
