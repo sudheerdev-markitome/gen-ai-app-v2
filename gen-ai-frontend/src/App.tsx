@@ -25,7 +25,7 @@ import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'; // Icon for lib
 import MicIcon from '@mui/icons-material/Mic'; // Icon for voice
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit'; // Icon for artifact panel
 import BugReportIcon from '@mui/icons-material/BugReport'; // Icon for feedback
-import { ContentCopy as ContentCopyIcon } from '@mui/icons-material';
+import { ContentCopy as ContentCopyIcon, AttachFile as AttachFileIcon, Close as CloseIcon } from '@mui/icons-material';
 
 import { ConversationSidebar } from './ConversationSidebar';
 import { AdminDashboard } from './AdminDashboard';
@@ -82,6 +82,8 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const CONVERSATIONS_URL = '/api/conversations';
   const GENERATE_URL = '/api/generate';
@@ -201,6 +203,17 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     } catch (err) { console.error(err); toast.error("Failed to generate share link."); }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const handleRemoveFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleSelectPrompt = (newPrompt: string) => {
     setPrompt(newPrompt);
     setIsLibraryOpen(false);
@@ -227,7 +240,12 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
     const currentPrompt = prompt;
     const currentHistory = [...messages];
     setMessages(prev => [...prev, userMessage]);
-    setPrompt(''); setIsLoading(true); setError('');
+    setPrompt('');
+    const currentFile = selectedFile;
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    
+    setIsLoading(true); setError('');
     const controller = new AbortController(); setAbortController(controller);
     try {
       const token = await getAuthToken();
@@ -238,6 +256,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       if (activeConversationId) formData.append('conversationId', activeConversationId);
       if (systemPrompt) formData.append('systemPrompt', systemPrompt);
       formData.append('history', JSON.stringify(historyForApi));
+      if (currentFile) {
+        formData.append('file', currentFile);
+      }
 
       const res = await fetch(GENERATE_URL, {
         method: 'POST',
@@ -356,6 +377,14 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
               </Paper>
               {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
               <Box component="form" onSubmit={handleSubmit} sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 4, border: '1px solid rgba(0,0,0,0.1)' }}>
+                {selectedFile && (
+                  <Box sx={{ mb: 1, display: 'inline-flex', alignItems: 'center', gap: 1, bgcolor: '#f1f5f9', px: 1.5, py: 0.5, borderRadius: 2, border: '1px solid rgba(148, 163, 184, 0.2)' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 500, color: 'text.secondary', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {selectedFile.name}
+                    </Typography>
+                    <IconButton size="small" onClick={handleRemoveFile} sx={{ p: 0.25 }}><CloseIcon sx={{ fontSize: 14 }} /></IconButton>
+                  </Box>
+                )}
                 <TextField placeholder="Message Markitome..." fullWidth multiline maxRows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} InputProps={{ disableUnderline: true, sx: { px: 1, py: 1 } }} variant="standard" />
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
                   <Box sx={{ display: 'flex', gap: 1 }}>
@@ -366,7 +395,9 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                       <MenuItem value="llama-4-scout">Llama 4 Scout</MenuItem>
                     </Select>
                     <IconButton onClick={() => setIsLibraryOpen(true)} size="small"><LibraryBooksIcon fontSize="small" /></IconButton>
+                    <IconButton onClick={() => fileInputRef.current?.click()} size="small"><AttachFileIcon fontSize="small" /></IconButton>
                     <IconButton onClick={handleVoiceInput} size="small" color={isListening ? 'error' : 'default'}><MicIcon fontSize="small" /></IconButton>
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} accept="image/*,.pdf,.doc,.docx,.txt" />
                   </Box>
                   {isLoading ? (
                     <IconButton onClick={handleStopGenerating} color="warning"><StopCircleIcon /></IconButton>

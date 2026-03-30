@@ -453,7 +453,7 @@ async def generate_text_sync(
                 })
             
             chat = gemini_model.start_chat(history=gemini_history)
-            response = chat.send_message(prompt)
+            response = chat.send_message(display_prompt)
             ai_response_text = response.text
 
         elif model_config["type"] == "openai":
@@ -467,7 +467,7 @@ async def generate_text_sync(
                 role = "assistant" if h.get("role") == "model" else "user"
                 messages.append({"role": role, "content": h.get("content", "")})
             
-            messages.append({"role": "user", "content": prompt})
+            messages.append({"role": "user", "content": display_prompt})
             
             response = client.chat.completions.create(
                 model=model_config["name"],
@@ -479,7 +479,7 @@ async def generate_text_sync(
             # --- OPENAI DALL-E IMAGE GENERATION ---
             response = client.images.generate(
                 model=model_config["name"],
-                prompt=prompt,
+                prompt=display_prompt,
                 n=1,
                 size="1024x1024",
                 quality="standard",
@@ -496,7 +496,7 @@ async def generate_text_sync(
                 # Anthropic uses 'user' and 'assistant'
                 role = "assistant" if h.get("role") == "model" else "user"
                 messages.append({"role": role, "content": h.get("content", "")})
-            messages.append({"role": "user", "content": prompt})
+            messages.append({"role": "user", "content": display_prompt})
 
             anthropic_resp = anthropic_client.messages.create(
                 model=model_config["name"],
@@ -516,7 +516,7 @@ async def generate_text_sync(
             for h in parsed_history:
                 role = "assistant" if h.get("role") == "model" else "user"
                 messages.append({"role": role, "content": h.get("content", "")})
-            messages.append({"role": "user", "content": prompt})
+            messages.append({"role": "user", "content": display_prompt})
 
             groq_resp = groq_client.chat.completions.create(
                 model=model_config["name"],
@@ -534,7 +534,7 @@ async def generate_text_sync(
             for h in parsed_history:
                 role = "assistant" if h.get("role") == "model" else "user"
                 messages.append({"role": role, "content": h.get("content", "")})
-            messages.append({"role": "user", "content": prompt})
+            messages.append({"role": "user", "content": display_prompt})
 
             mistral_resp = mistral_client.chat.complete(
                 model=model_config["name"],
