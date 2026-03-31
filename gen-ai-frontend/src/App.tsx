@@ -42,7 +42,7 @@ Amplify.configure(awsExports);
 // --- CONFIG ---
 const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"];
 
-type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o' | 'dall-e-3' | 'claude-4-6-sonnet' | 'llama-4-scout' | 'mistral-large';
+type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o' | 'dall-e-3' | 'claude-3-5-sonnet' | 'llama-4-scout' | 'mistral-large';
 interface Message { sender: 'user' | 'ai'; text: string; }
 interface Conversation { id: string; title: string; }
 
@@ -390,7 +390,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <Select size="small" value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} sx={{ fontSize: '0.8rem' }}>
                       <MenuItem value="gpt-4o">GPT-4o</MenuItem>
-                      <MenuItem value="claude-4-6-sonnet">Claude Sonnet 4.6</MenuItem>
+                      <MenuItem value="claude-3-5-sonnet">Claude Sonnet 3.5</MenuItem>
                       <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash</MenuItem>
                       <MenuItem value="llama-4-scout">Llama 4 Scout</MenuItem>
                     </Select>

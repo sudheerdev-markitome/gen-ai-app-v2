@@ -88,7 +88,7 @@ SUPPORTED_MODELS = {
     "gemini-pro": { "type": "google", "name": "gemini-pro-latest" },
     "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" },
     "dall-e-3": { "type": "image", "name": "dall-e-3" },
-    "claude-4-6-sonnet": { "type": "anthropic", "name": "claude-3-7-sonnet-20250219" },
+    "claude-3-5-sonnet": { "type": "anthropic", "name": "claude-3-5-sonnet-20241022" },
     "llama-4-scout": { "type": "groq", "name": "meta-llama/llama-4-scout-17b-16e-instruct" },
     "mistral-large": { "type": "mistral", "name": "mistral-large-latest" }
 }
