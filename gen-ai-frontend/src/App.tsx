@@ -40,7 +40,7 @@ import materialLight from 'react-syntax-highlighter/dist/cjs/styles/prism/materi
 Amplify.configure(awsExports);
 
 // --- CONFIG ---
-const ADMIN_EMAILS = ["your.email@example.com", "sudheer@markitome.com"];
+const ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"];
 
 type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o' | 'dall-e-3' | 'claude-3-5-sonnet' | 'llama-4-scout' | 'mistral-large';
 interface Message { sender: 'user' | 'ai'; text: string; }

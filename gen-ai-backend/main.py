@@ -82,6 +82,7 @@ shared_links_table = dynamodb.Table('SharedLinks')
 user_feedback_table = dynamodb.Table('UserFeedback')
 registration_leads_table = dynamodb.Table('RegistrationLeads')
 
+# VERSION: 2.1.0 - Claude ID Fix & Aliases
 SUPPORTED_MODELS = {
     "gpt-4o": { "type": "openai_assistant", "name": OPENAI_ASSISTANT_ID },
     "gpt-4": { "type": "openai", "name": "gpt-4" }, # Fallback
@@ -89,6 +90,7 @@ SUPPORTED_MODELS = {
     "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" },
     "dall-e-3": { "type": "image", "name": "dall-e-3" },
     "claude-3-5-sonnet": { "type": "anthropic", "name": "claude-3-5-sonnet-20241022" },
+    "claude-4-6-sonnet": { "type": "anthropic", "name": "claude-3-5-sonnet-20241022" }, # Alias for cache compatibility
     "llama-4-scout": { "type": "groq", "name": "meta-llama/llama-4-scout-17b-16e-instruct" },
     "mistral-large": { "type": "mistral", "name": "mistral-large-latest" }
 }
