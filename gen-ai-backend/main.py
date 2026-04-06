@@ -21,7 +21,7 @@ from jose.exceptions import JOSEError
 
 import openai
 import google.generativeai as genai
-import anthropic
+
 from groq import Groq
 
 # Diagnostic for Mistral import issue
@@ -53,9 +53,7 @@ OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 openai_key = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=openai_key) if openai_key else None
 
-# Anthropic Client (Claude)
-anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-anthropic_client = anthropic.Anthropic(api_key=anthropic_key) if (anthropic_key and "your_anthropic" not in anthropic_key) else None
+
 
 # Groq Client (Llama 3)
 groq_key = os.getenv("GROQ_API_KEY")
@@ -89,8 +87,7 @@ SUPPORTED_MODELS = {
     "gemini-pro": { "type": "google", "name": "gemini-pro-latest" },
     "gemini-2.5-flash": { "type": "google", "name": "gemini-flash-latest" },
     "dall-e-3": { "type": "image", "name": "dall-e-3" },
-    "claude-3-5-sonnet": { "type": "anthropic", "name": "claude-3-5-sonnet-20241022" },
-    "claude-4-6-sonnet": { "type": "anthropic", "name": "claude-3-5-sonnet-20241022" }, # Alias for cache compatibility
+
     "llama-4-scout": { "type": "groq", "name": "meta-llama/llama-4-scout-17b-16e-instruct" },
     "mistral-large": { "type": "mistral", "name": "mistral-large-latest" }
 }
@@ -489,24 +486,7 @@ async def generate_text_sync(
             image_url = response.data[0].url
             ai_response_text = f"![Generated Image]({image_url})"
 
-        elif model_config["type"] == "anthropic":
-            # --- ANTHROPIC CLAUDE LOGIC ---
-            if not anthropic_client:
-                raise HTTPException(status_code=400, detail="Anthropic is not configured. Please check your ANTHROPIC_API_KEY.")
-            messages = []
-            for h in parsed_history:
-                # Anthropic uses 'user' and 'assistant'
-                role = "assistant" if h.get("role") == "model" else "user"
-                messages.append({"role": role, "content": h.get("content", "")})
-            messages.append({"role": "user", "content": display_prompt})
 
-            anthropic_resp = anthropic_client.messages.create(
-                model=model_config["name"],
-                max_tokens=4096,
-                system=systemPrompt or "You are a helpful assistant.",
-                messages=messages
-            )
-            ai_response_text = anthropic_resp.content[0].text
 
         elif model_config["type"] == "groq":
             # --- GROQ (LLAMA 3) LOGIC ---
