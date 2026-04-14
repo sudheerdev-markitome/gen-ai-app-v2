@@ -42,8 +42,16 @@ Amplify.configure(awsExports);
 // --- CONFIG ---
 const ADMIN_EMAILS = ["vivek@markitome.com", "sudheer@markitome.com"];
 
-type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o' | 'dall-e-3' | 'llama-4-scout' | 'mistral-large';
-interface Message { sender: 'user' | 'ai'; text: string; }
+type SupportedModel = 'gpt-4' | 'gemini-pro' | 'gemini-2.5-flash' | 'gpt-4o' | 'dall-e-3' | 'llama-4-scout' | 'mistral-large' | 'smart-route';
+interface Message { 
+  sender: 'user' | 'ai'; 
+  text: string; 
+  metadata?: {
+    model: string;
+    total_tokens: number;
+    cost: number;
+  };
+}
 interface Conversation { id: string; title: string; }
 
 interface IWindow extends Window {
@@ -65,7 +73,7 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [prompt, setPrompt] = useState<string>('');
-  const [model, setModel] = useState<SupportedModel>('gpt-4o');
+  const [model, setModel] = useState<SupportedModel>('smart-route');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const chatEndRef = useRef<null | HTMLDivElement>(null);
@@ -131,7 +139,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       }
       const data = await res.json();
       const sortedMessages = data.sort((a: any, b: any) => a.timestamp.localeCompare(b.timestamp));
-      setMessages(sortedMessages.map((msg: any) => ({ sender: msg.sender, text: msg.text })));
+      setMessages(sortedMessages.map((msg: any) => ({ 
+        sender: msg.sender, 
+        text: msg.text,
+        metadata: msg.metadata ? (typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata) : undefined
+      })));
       if (isMobile) setMobileOpen(false);
     } catch (err: any) { setError(`Failed to load messages: ${err.message}`); } finally { setIsLoading(false); }
   };
@@ -269,7 +281,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
       if (controller.signal.aborted) return;
       if (!res.ok) { let errorDetail = `Server error: ${res.status}`; try { const errorData = await res.json(); errorDetail = errorData.detail || errorDetail; } catch (e) { } throw new Error(errorDetail); }
       const data = await res.json();
-      const aiMessage: Message = { sender: 'ai', text: data.text };
+      const aiMessage: Message = { 
+        sender: 'ai', 
+        text: data.text,
+        metadata: data.metadata
+      };
       setMessages(prev => [...prev, aiMessage]);
       if (!activeConversationId && data.conversationId) { const newConvId = data.conversationId; setActiveConversationId(newConvId); setConversations(prev => [{ id: newConvId, title: currentPrompt.substring(0, 50) }, ...prev]); }
     } catch (err: any) { if (err.name === 'AbortError') { console.log('Fetch aborted'); } else { setError(err.message); } } finally { setIsLoading(false); setAbortController(null); }
@@ -362,6 +378,19 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                               {msg.sender === 'ai' ? <ReactMarkdown components={{ code: (props) => <CodeBlock {...props} /> }}>{msg.text}</ReactMarkdown> : msg.text}
                             </Typography>
                           </Paper>
+                          {msg.sender === 'ai' && msg.metadata && (
+                            <Box sx={{ mt: 0.5, px: 1, display: 'flex', gap: 1.5, opacity: 0.6 }}>
+                              <Typography variant="caption" sx={{ fontWeight: 600, color: 'primary.main', fontSize: '0.65rem' }}>
+                                {msg.metadata.model.toUpperCase()}
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: '0.65rem' }}>
+                                {msg.metadata.total_tokens} tokens
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: '0.65rem', fontWeight: 500 }}>
+                                ${msg.metadata.cost}
+                              </Typography>
+                            </Box>
+                          )}
                           {msg.sender === 'ai' && msg.text && !isLoading && (
                             <Box sx={{ mt: 0.5, display: 'flex', gap: 0.5 }}>
                               <IconButton size="small" onClick={() => setActiveArtifact(msg.text)}><VerticalSplitIcon sx={{ fontSize: 16 }} /></IconButton>
@@ -389,10 +418,11 @@ function App({ signOut, user }: { signOut?: () => void; user?: any }) {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <Select size="small" value={model} onChange={(e) => setModel(e.target.value as SupportedModel)} sx={{ fontSize: '0.8rem' }}>
+                      <MenuItem value="smart-route">✨ Smart Route</MenuItem>
                       <MenuItem value="gpt-4o">GPT-4o</MenuItem>
-
                       <MenuItem value="gemini-2.5-flash">Gemini 2.5 Flash</MenuItem>
                       <MenuItem value="llama-4-scout">Llama 4 Scout</MenuItem>
+                      <MenuItem value="mistral-large">Mistral Large</MenuItem>
                     </Select>
                     <IconButton onClick={() => setIsLibraryOpen(true)} size="small"><LibraryBooksIcon fontSize="small" /></IconButton>
                     <IconButton onClick={() => fileInputRef.current?.click()} size="small"><AttachFileIcon fontSize="small" /></IconButton>

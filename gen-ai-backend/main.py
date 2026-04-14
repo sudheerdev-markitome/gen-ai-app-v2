@@ -80,8 +80,9 @@ shared_links_table = dynamodb.Table('SharedLinks')
 user_feedback_table = dynamodb.Table('UserFeedback')
 registration_leads_table = dynamodb.Table('RegistrationLeads')
 
-# VERSION: 2.1.0 - Claude ID Fix & Aliases
+# VERSION: 2.2.0 - LLM Traffic Controller Integration
 SUPPORTED_MODELS = {
+    "smart-route": { "type": "router", "name": "LLM Traffic Controller" },
     "gpt-4o": { "type": "openai_assistant", "name": OPENAI_ASSISTANT_ID },
     "gpt-4": { "type": "openai", "name": "gpt-4" }, # Fallback
     "gemini-pro": { "type": "google", "name": "gemini-pro-latest" },
@@ -115,6 +116,75 @@ tool_functions = {
     "get_current_server_time": get_current_server_time,
     "google_search": google_search
 }
+
+## -------------------
+## LLM TRAFFIC CONTROLLER
+## -------------------
+HF_API_TOKEN = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_TOKEN")
+TRAFFIC_CONTROLLER_MODEL = "sudheerdunga/llm-traffic-controller"
+
+def get_best_model_for_prompt(prompt: str) -> str:
+    """Uses the LLM Traffic Controller to decide which model to use."""
+    if not HF_API_TOKEN:
+        print("WARNING: HF_TOKEN not found. Defaulting to gpt-4o for smart route.")
+        return "gpt-4o"
+    
+    api_url = f"https://api-inference.huggingface.co/models/{TRAFFIC_CONTROLLER_MODEL}"
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    
+    try:
+        response = requests.post(api_url, headers=headers, json={"inputs": prompt}, timeout=5)
+        # Handle API errors or loading states
+        if response.status_code != 200:
+            print(f"Traffic Controller API Error: {response.status_code} - {response.text}")
+            return "gpt-4o"
+            
+        result = response.json()
+        
+        # SetFit models on Inference API typically return a list of dicts:
+        # [{"label": "coding", "score": 0.98}, ...]
+        top_class = "reasoning" # Default
+        
+        if isinstance(result, list) and len(result) > 0:
+            # Handle multiple formats just in case
+            first_item = result[0]
+            if isinstance(first_item, dict) and "label" in first_item:
+                top_class = first_item["label"]
+            elif isinstance(first_item, list) and len(first_item) > 0 and isinstance(first_item[0], dict):
+                top_class = first_item[0]["label"]
+            
+        print(f"DEBUG: Traffic Controller predicted class: {top_class}")
+        
+        # Mapping predicted labels to available models
+        # labels: simple_chat, extraction, reasoning, coding
+        if top_class == "simple_chat":
+            return "gemini-2.5-flash"
+        elif top_class == "extraction":
+            return "mistral-large"
+        elif top_class == "coding":
+            return "mistral-large"
+        elif top_class == "reasoning":
+            return "gpt-4o"
+        else:
+            return "gpt-4o"
+            
+    except Exception as e:
+        print(f"Traffic Controller Exception: {e}")
+        return "gpt-4o" # fallback
+
+MODEL_COSTS = {
+    "gpt-4o": {"input": 5.0, "output": 15.0},
+    "gpt-4": {"input": 30.0, "output": 60.0},
+    "gemini-pro-latest": {"input": 0.5, "output": 1.5},
+    "gemini-flash-latest": {"input": 0.075, "output": 0.3},
+    "mistral-large-latest": {"input": 2.0, "output": 6.0},
+    "meta-llama/llama-4-scout-17b-16e-instruct": {"input": 0.2, "output": 0.2},
+}
+
+def calculate_cost(model_name: str, input_tokens: int, output_tokens: int) -> float:
+    costs = MODEL_COSTS.get(model_name, {"input": 0, "output": 0})
+    total = (input_tokens / 1_000_000 * costs["input"]) + (output_tokens / 1_000_000 * costs["output"])
+    return round(total, 6)
 
 def send_admin_notification(subject: str, body: str):
     """Sends a notification email to all admin emails using Amazon SES."""
@@ -369,10 +439,17 @@ async def generate_text_sync(
     # 1. Save User Message
     chat_history_table.put_item(Item={'conversationId': conv_id, 'timestamp': f"{timestamp}_user", 'userId': user_id, 'sender': 'user', 'text': display_prompt})
 
+    # --- LLM TRAFFIC CONTROLLER ROUTING ---
+    if model == "smart-route":
+        model = get_best_model_for_prompt(prompt)
+        print(f"DEBUG: Smart Route selected actual model: {model}")
+
     model_config = SUPPORTED_MODELS.get(model)
     if not model_config: raise HTTPException(status_code=400, detail="Model not supported")
 
+    actual_model_name = model_config["name"]
     ai_response_text = ""
+    usage_metadata = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cost": 0, "model": model}
     
     try:
         parsed_history = []
@@ -435,6 +512,11 @@ async def generate_text_sync(
             if run.status == 'completed':
                 messages = client.beta.threads.messages.list(thread_id=thread_id)
                 ai_response_text = messages.data[0].content[0].text.value
+                # OpenAI Assistants API usage is in the run
+                if run.usage:
+                    usage_metadata["input_tokens"] = run.usage.prompt_tokens
+                    usage_metadata["output_tokens"] = run.usage.completion_tokens
+                    usage_metadata["total_tokens"] = run.usage.total_tokens
             else:
                 ai_response_text = f"Assistant run failed with status: {run.status}"
 
@@ -454,6 +536,10 @@ async def generate_text_sync(
             chat = gemini_model.start_chat(history=gemini_history)
             response = chat.send_message(display_prompt)
             ai_response_text = response.text
+            if hasattr(response, 'usage_metadata'):
+                usage_metadata["input_tokens"] = response.usage_metadata.prompt_token_count
+                usage_metadata["output_tokens"] = response.usage_metadata.candidates_token_count
+                usage_metadata["total_tokens"] = response.usage_metadata.total_token_count
 
         elif model_config["type"] == "openai":
             # --- STANDARD OPENAI (GPT-4) LOGIC ---
@@ -473,6 +559,10 @@ async def generate_text_sync(
                 messages=messages
             )
             ai_response_text = response.choices[0].message.content
+            if response.usage:
+                usage_metadata["input_tokens"] = response.usage.prompt_tokens
+                usage_metadata["output_tokens"] = response.usage.completion_tokens
+                usage_metadata["total_tokens"] = response.usage.total_tokens
 
         elif model_config["type"] == "image":
             # --- OPENAI DALL-E IMAGE GENERATION ---
@@ -485,6 +575,7 @@ async def generate_text_sync(
             )
             image_url = response.data[0].url
             ai_response_text = f"![Generated Image]({image_url})"
+            usage_metadata["cost"] = 0.04 # DALL-E 3 standard price
 
 
 
@@ -505,6 +596,10 @@ async def generate_text_sync(
                 messages=messages
             )
             ai_response_text = groq_resp.choices[0].message.content
+            if groq_resp.usage:
+                usage_metadata["input_tokens"] = groq_resp.usage.prompt_tokens
+                usage_metadata["output_tokens"] = groq_resp.usage.completion_tokens
+                usage_metadata["total_tokens"] = groq_resp.usage.total_tokens
 
         elif model_config["type"] == "mistral":
             # --- MISTRAL LOGIC ---
@@ -523,6 +618,10 @@ async def generate_text_sync(
                 messages=messages
             )
             ai_response_text = mistral_resp.choices[0].message.content
+            if hasattr(mistral_resp, 'usage'):
+                usage_metadata["input_tokens"] = mistral_resp.usage.prompt_tokens
+                usage_metadata["output_tokens"] = mistral_resp.usage.completion_tokens
+                usage_metadata["total_tokens"] = mistral_resp.usage.total_tokens
 
         else:
             ai_response_text = "Model type not supported."
@@ -533,6 +632,27 @@ async def generate_text_sync(
 
     # 3. Save AI Response
     ai_ts = datetime.now(timezone.utc).isoformat()
-    chat_history_table.put_item(Item={'conversationId': conv_id, 'timestamp': f"{ai_ts}_ai", 'userId': user_id, 'sender': 'ai', 'text': ai_response_text})
+    
+    # Calculate Cost if not already set (like for images)
+    if usage_metadata["cost"] == 0:
+        usage_metadata["cost"] = calculate_cost(actual_model_name, usage_metadata["input_tokens"], usage_metadata["output_tokens"])
 
-    return {"text": ai_response_text, "conversationId": conv_id}
+    # Store metadata in text for now (embedded JSON logic) OR we could add a new column to DynamoDB.
+    # For simplicity and immediate UI update, we'll return it in the JSON response.
+    # We should also log it to usage_logs_table
+    try:
+        usage_logs_table.put_item(Item={
+            'logId': str(uuid.uuid4()),
+            'timestamp': ai_ts,
+            'userId': user_id,
+            'model': model,
+            'actual_model': actual_model_name,
+            'input_tokens': usage_metadata["input_tokens"],
+            'output_tokens': usage_metadata["output_tokens"],
+            'cost': str(usage_metadata["cost"])
+        })
+    except: pass
+
+    chat_history_table.put_item(Item={'conversationId': conv_id, 'timestamp': f"{ai_ts}_ai", 'userId': user_id, 'sender': 'ai', 'text': ai_response_text, 'metadata': json.dumps(usage_metadata)})
+
+    return {"text": ai_response_text, "conversationId": conv_id, "metadata": usage_metadata}
